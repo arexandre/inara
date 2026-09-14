@@ -156,7 +156,7 @@ async def _cmd_pix(args: str, chat_id: int) -> str:
         f"✅ *Pix registrado!*\n"
         f"👤 De: @{sender['username']}\n"
         f"👥 Para: @{beneficiary_label}\n"
-        f"💰 Valor: R\$ {amount:.2f}"
+        f"💰 Valor: R$ {amount:.2f}"
     )
 
 
