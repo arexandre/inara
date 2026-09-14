@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --warm-bg: #fdfaf7;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #fdfaf7; /* warm-bg */
+  }
+
+  /* Scrollbar discreta e orgânica */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d6c9b8; border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #b9a892; }
+}
+
+@layer components {
+  /* Card base estilo "papel natural" */
+  .card {
+    @apply rounded-3xl bg-white/80 backdrop-blur-sm border border-warm-200 shadow-sm;
+  }
+
+  /* Botão primário com cor mel */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-2xl bg-brand-500 px-5 py-2.5
+           font-medium text-white shadow-sm transition-all
+           hover:bg-brand-600 hover:shadow-md active:scale-95;
+  }
+
+  /* Botão secundário discreto */
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 rounded-2xl border border-warm-300
+           bg-white px-5 py-2.5 font-medium text-stone-700 shadow-sm
+           transition-all hover:bg-warm-50 active:scale-95;
+  }
+
+  /* Badge de status kanban */
+  .badge-backlog    { @apply rounded-full bg-stone-100 px-3 py-0.5 text-xs font-medium text-stone-600; }
+  .badge-todo       { @apply rounded-full bg-blue-100 px-3 py-0.5 text-xs font-medium text-blue-700; }
+  .badge-in_progress { @apply rounded-full bg-brand-100 px-3 py-0.5 text-xs font-medium text-brand-700; }
+  .badge-done       { @apply rounded-full bg-sage-100 px-3 py-0.5 text-xs font-medium text-sage-700; }
+}

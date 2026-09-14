@@ -1,0 +1,28 @@
+﻿# Dependências
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Next.js
+.next/
+out/
+build/
+
+# Variáveis de ambiente (nunca commitar!)
+.env.local
+.env.production
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
