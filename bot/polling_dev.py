@@ -1,0 +1,114 @@
+"""
+Inara Bot — Modo Polling (desenvolvimento local).
+
+Em vez de receber webhooks, este script busca updates via getUpdates.
+Use apenas para desenvolvimento. Em producao, use o webhook via FastAPI.
+
+Uso: python polling_dev.py
+"""
+
+import asyncio
+import json
+import logging
+import os
+import sys
+
+import httpx
+from dotenv import load_dotenv
+
+# Adicionar o diretório raiz ao path
+sys.path.insert(0, os.path.dirname(__file__))
+
+load_dotenv()
+
+from app.services.fast_track import handle_fast_track
+from app.services.telegram import send_message
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("inara.polling")
+
+TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+API_BASE = f"https://api.telegram.org/bot{TOKEN}"
+
+FAST_TRACK_COMMANDS = {
+    "/start": "_cmd_start",
+    "/lista": "_cmd_lista",
+    "/pix": "_cmd_pix",
+    "/tarefas": "_cmd_tarefas",
+    "/ajuda": "_cmd_ajuda",
+    "/help": "_cmd_ajuda",
+}
+
+
+async def process_message(message: dict) -> None:
+    """Processa uma mensagem recebida via polling."""
+    chat_id = message["chat"]["id"]
+    text = message.get("text", "").strip()
+
+    if not text:
+        return
+
+    # Fast Track
+    base_command = text.split("@")[0].split()[0].lower()
+    if base_command in FAST_TRACK_COMMANDS:
+        logger.info("Fast Track: %s (chat_id=%s)", base_command, chat_id)
+        handler_name = FAST_TRACK_COMMANDS[base_command]
+        args = text[len(base_command):].strip()
+        reply = await handle_fast_track(handler_name, args, chat_id)
+        await send_message(chat_id, reply)
+        return
+
+    # LLM (Gemini)
+    logger.info("LLM route: chat_id=%s, text=%r", chat_id, text[:60])
+    try:
+        from app.services.ai import handle_ai_message
+        reply = await handle_ai_message(text, chat_id)
+    except Exception as exc:
+        logger.exception("Erro no handler de IA: %s", exc)
+        reply = "Ocorreu um erro ao processar sua mensagem. Tente novamente."
+    await send_message(chat_id, reply)
+
+
+async def poll_updates() -> None:
+    """Loop principal de long-polling."""
+    offset = 0
+    logger.info("Inara Bot iniciado em modo polling! Aguardando mensagens...")
+    logger.info("Envie /start para @home_inara_bot no Telegram")
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        while True:
+            try:
+                r = await client.get(
+                    f"{API_BASE}/getUpdates",
+                    params={"offset": offset, "timeout": 30},
+                )
+                data = r.json()
+
+                if not data.get("ok"):
+                    logger.error("Telegram API error: %s", data)
+                    await asyncio.sleep(5)
+                    continue
+
+                for update in data.get("result", []):
+                    offset = update["update_id"] + 1
+                    message = update.get("message") or update.get("edited_message")
+                    if message:
+                        try:
+                            await process_message(message)
+                        except Exception:
+                            logger.exception("Erro ao processar mensagem")
+
+            except httpx.TimeoutException:
+                continue
+            except Exception:
+                logger.exception("Erro no polling loop")
+                await asyncio.sleep(5)
+
+
+if __name__ == "__main__":
+    # Remover webhook existente (polling e webhook sao mutuamente exclusivos)
+    httpx.get(f"{API_BASE}/deleteWebhook")
+    asyncio.run(poll_updates())
