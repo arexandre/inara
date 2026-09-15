@@ -1,0 +1,558 @@
+Line 1: """
+Line 2: ServiÃƒÆ’Ã‚Â§o de IA (Google Gemini) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Processamento de linguagem natural.
+Line 3: 
+Line 4: Fluxo:
+Line 5: 1. Recebe mensagem livre do Telegram.
+Line 6: 2. Envia ao Gemini com System Prompt contextual (perfil + domÃƒÆ’Ã‚Â­nios).
+Line 7: 3. Gemini retorna JSON estruturado com intent + parÃƒÆ’Ã‚Â¢metros.
+Line 8: 4. Dispatcher executa a aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o correspondente no Supabase.
+Line 9: 5. Retorna resposta formatada para o Telegram.
+Line 10: """
+Line 11: 
+Line 12: import json
+Line 13: import logging
+Line 14: import os
+Line 15: from datetime import date
+Line 16: from typing import Any
+Line 17: 
+Line 18: import google.generativeai as genai
+Line 19: from supabase import create_client, Client
+Line 20: 
+Line 21: from app.logger import logger
+Line 22: 
+Line 23: # ---------------------------------------------------------------------------
+Line 24: # InstanciaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o do Modelo
+Line 25: # ---------------------------------------------------------------------------
+Line 26: def _get_model():
+Line 27: from datetime import datetime
+Line 28: from app.logger import BRT
+Line 29: agora = datetime.now(BRT)
+Line 30: dias = ["Segunda", "TerÃƒÆ’Ã‚Â§a", "Quarta", "Quinta", "Sexta", "SÃƒÆ’Ã‚Â¡bado", "Domingo"]
+Line 31: dia_semana = dias[agora.weekday()]
+Line 32: 
+Line 33: dynamic_sys_prompt = f"Data atual: {agora.strftime('%Y-%m-%d %H:%M:%S')} ({dia_semana}).\n{SYSTEM_PROMPT}"
+Line 34: 
+Line 35: genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+Line 36: return genai.GenerativeModel(
+Line 37: model_name="gemini-3.5-flash-lite",
+Line 38: system_instruction=dynamic_sys_prompt,
+Line 39: generation_config=genai.GenerationConfig(
+Line 40: response_mime_type="application/json",
+Line 41: temperature=0.3,
+Line 42: ),
+Line 43: )
+Line 44: 
+Line 45: 
+Line 46: def _get_supabase() -> Client:
+Line 47: return create_client(
+Line 48: os.environ["SUPABASE_URL"],
+Line 49: os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+Line 50: )
+Line 51: 
+Line 52: 
+Line 53: # ---------------------------------------------------------------------------
+Line 54: # System Prompt ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â define a personalidade e as capacidades da Inara
+Line 55: # ---------------------------------------------------------------------------
+Line 56: SYSTEM_PROMPT = """
+Line 57: VocÃƒÆ’Ã‚Âª ÃƒÆ’Ã‚Â© a Inara, uma assistente domÃƒÆ’Ã‚Â©stica inteligente e carinhosa que gerencia a casa de 3 moradores.
+Line 58: 
+Line 59: ## Suas Capacidades (DomÃƒÆ’Ã‚Â­nios)
+Line 60: 
+Line 61: ### 1. TAREFAS (tasks)
+Line 62: - Criar tarefas domÃƒÆ’Ã‚Â©sticas (lavar louÃƒÆ’Ã‚Â§a, limpar banheiro, etc.)
+Line 63: - Listar tarefas pendentes
+Line 64: - Marcar tarefas como concluÃƒÆ’Ã‚Â­das
+Line 65: - Atribuir tarefas a moradores
+Line 66: 
+Line 67: ### 2. FINANÃƒÆ’Ã¢â‚¬Â¡AS (transactions)
+Line 68: - Registrar gastos coletivos (conta de luz, mercado, etc.)
+Line 69: - Registrar gastos individuais (pix entre moradores)
+Line 70: - Consultar saldo/rateio entre moradores
+Line 71: 
+Line 72: ### 3. LISTA DE COMPRAS (shopping_list)
+Line 73: - Adicionar itens ÃƒÆ’Ã‚Â  lista
+Line 74: - Remover itens
+Line 75: - Marcar itens como comprados
+Line 76: 
+Line 77: ## Regras de Resposta
+Line 78: 
+Line 79: SEMPRE responda com um JSON vÃƒÆ’Ã‚Â¡lido no seguinte formato:
+Line 80: 
+Line 81: ```json
+Line 82: {
+Line 83: "intent": "nome_da_acao",
+Line 84: "params": { ... },
+Line 85: "reply": "Mensagem simpÃƒÆ’Ã‚Â¡tica para o usuÃƒÆ’Ã‚Â¡rio em portuguÃƒÆ’Ã‚Âªs"
+Line 86: }
+Line 87: ```
+Line 88: 
+Line 89: ### Intents disponÃƒÆ’Ã‚Â­veis:
+Line 90: 
+Line 91: | Intent | Params | DescriÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o |
+Line 92: |--------|--------|-----------|
+Line 93: | `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Criar nova tarefa. Se o usuÃƒÆ’Ã‚Â¡rio falar "atÃƒÆ’Ã‚Â© o fim de semana" ou "amanhÃƒÆ’Ã‚Â£", calcule a data exata. Se nÃƒÆ’Ã‚Â£o especificar prazo, OBRIGATORIAMENTE aplique um peso semÃƒÆ’Ã‚Â¢ntico baseando-se na urgÃƒÆ’Ã‚Âªncia (ex: louÃƒÆ’Ã‚Â§a = data de hoje, pintar parede = hoje + 7 dias). |
+Line 94: | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
+Line 95: | `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
+Line 96: | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
+Line 97: | `transaction_list` | `limit?` | Listar transaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes recentes |
+Line 98: | `balance_check` | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | Ver rateio/saldo |
+Line 99: | `shopping_add` | `item_name`, `quantity?`, `category?` (obrigatÃƒÆ’Ã‚Â³rio: [Mercado], [FarmÃƒÆ’Ã‚Â¡cia], [Petshop], etc.), `estimated_price?` | Adicionar item. |
+Line 100: | `shopping_update`| `item_name`, `quantity?` | Atualizar a quantidade de um item que jÃƒÆ’Ã‚Â¡ estÃƒÆ’Ã‚Â¡ na lista. |
+Line 101: | `shopping_done` | `item_name` | Marcar item como comprado |
+Line 102: | `weather_check` | `city?` (default: Araguari), `timeframe?` (hoje ou amanhÃƒÆ’Ã‚Â£) | Ver previsÃƒÆ’Ã‚Â£o do tempo |
+Line 103: | `chat` | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | Quando nÃƒÆ’Ã‚Â£o ÃƒÆ’Ã‚Â© um comando, apenas conversa casual |
+Line 104: 
+Line 105: ### Lidar com MÃƒÆ’Ã‚Â­dias (Fotos e ÃƒÆ’Ã‚Âudio) - RESILIÃƒÆ’Ã…Â NCIA MÃƒÆ’Ã‚ÂXIMA:
+Line 106: - **ÃƒÆ’Ã‚Âudio**: O usuÃƒÆ’Ã‚Â¡rio envia ÃƒÆ’Ã‚Â¡udios caÃƒÆ’Ã‚Â³ticos com ruÃƒÆ’Ã‚Â­do conversacional (ex: "Oi Inara, ehh..."). **IGNORE o ruÃƒÆ’Ã‚Â­do e as saudaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes**. VÃƒÆ’Ã‚Â¡ direto ao ponto e extraia APENAS as intenÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes concretas. Seja estrito na formaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o do JSON.
+Line 107: - **Fotos (Notas Fiscais)**: Se enviar foto, o pagador (`paid_by`) ÃƒÆ’Ã‚Â© SEMPRE o Remetente da mensagem. Se o usuÃƒÆ’Ã‚Â¡rio falar na legenda algo como "O chocolate ÃƒÆ’Ã‚Â© sÃƒÆ’Ã‚Â³ meu", separe a nota: crie mÃƒÆ’Ã‚Âºltiplos `transaction_create` (um `type=individual` para o chocolate com `beneficiary_username` igual ao remetente, e outro `type=collective` para o resto).
+Line 108: - **Lista de Compras (DeduplicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o)**: Se o usuÃƒÆ’Ã‚Â¡rio pedir para adicionar um item que JÃƒÆ’Ã‚Â CONSTA na "Lista de Compras Atual" informada no contexto, NÃƒÆ’Ã†â€™O crie um novo. Use `shopping_update` somando as quantidades. Tagueie obrigatoriamente a `category` (ex: Mercado, FarmÃƒÆ’Ã‚Â¡cia).
+Line 109: 
+Line 110: ### Exemplos de InterpretaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o:
+Line 111: - "Comprei 3kg de frango por 45 reais" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ transaction_create (collective, alimentaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o)
+Line 112: - "Vai chover amanhÃƒÆ’Ã‚Â£?" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ weather_check (timeframe=amanhÃƒÆ’Ã‚Â£)
+Line 113: - [Imagem de cupom fiscal de R$ 120,50 no Carrefour] ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ transaction_create (amount=120.50, description="Compra no Carrefour", type="collective")
+Line 114: - "Adiciona papel higiÃƒÆ’Ã‚Âªnico na lista" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ shopping_add
+Line 115: - "Fiz um pix de 50 pro JoÃƒÆ’Ã‚Â£o" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ transaction_create (individual, beneficiary=JoÃƒÆ’Ã‚Â£o)
+Line 116: - "Cria uma tarefa pra limpar o banheiro" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ task_create
+Line 117: - "Marca a tarefa #0003 como feita" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ task_update (seq_id=3, status=done)
+Line 118: - "Como tÃƒÆ’Ã‚Â¡ o saldo?" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ balance_check
+Line 119: - "Bom dia, Inara!" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ chat
+Line 120: 
+Line 121: Se nÃƒÆ’Ã‚Â£o entender a intenÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o, use intent "chat" e pergunte educadamente.
+Line 122: O campo "reply" DEVE ser uma mensagem em portuguÃƒÆ’Ã‚Âªs, simpÃƒÆ’Ã‚Â¡tica e breve.
+Line 123: """
+Line 124: 
+Line 125: 
+Line 126: # ---------------------------------------------------------------------------
+Line 127: # Handler principal ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â chamado pelo webhook
+Line 128: # ---------------------------------------------------------------------------
+Line 129: async def _process_ai_message(
+Line 130: text: str,
+Line 131: chat_id: int,
+Line 132: media_bytes: bytes | None = None,
+Line 133: media_mime: str | None = None
+Line 134: ) -> str:
+Line 135: """
+Line 136: Processa uma mensagem livre usando o Gemini e executa a aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o no Supabase.
+Line 137: Retorna a mensagem formatada para enviar ao Telegram.
+Line 138: """
+Line 139: sb = _get_supabase()
+Line 140: 
+Line 141: # Buscar perfil do remetente pelo telegram_id
+Line 142: sender = None
+Line 143: try:
+Line 144: r = sb.table("profiles").select("id, username, full_name").eq("telegram_id", chat_id).single().execute()
+Line 145: sender = r.data
+Line 146: except Exception:
+Line 147: pass
+Line 148: 
+Line 149: if not sender:
+Line 150: return (
+Line 151: "ÃƒÂ¢Ã‚ÂÃ…â€™ Seu Telegram nÃƒÆ’Ã‚Â£o estÃƒÆ’Ã‚Â¡ vinculado a nenhum morador.\n"
+Line 152: "Acesse o app Inara e vincule seu perfil primeiro."
+Line 153: )
+Line 154: 
+Line 155: # Contextualizar a mensagem para o Gemini
+Line 156: from datetime import datetime
+Line 157: from app.logger import BRT
+Line 158: hoje_str = datetime.now(BRT).strftime("%Y-%m-%d")
+Line 159: 
+Line 160: # Buscar lista de compras ativa para DeduplicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o
+Line 161: shop_res = sb.table("shopping_list").select("item_name, quantity").eq("status", "pending").execute()
+Line 162: shop_items = [f"- {i['item_name']} (Qtd: {i['quantity'] or 1})" for i in shop_res.data] if shop_res.data else ["Nenhum"]
+Line 163: shop_context = "\nLista de Compras Atual:\n" + "\n".join(shop_items)
+Line 164: 
+Line 165: context_text = f"[Data atual: {hoje_str}] [Remetente: @{sender['username']} (id: {sender['id']})]{shop_context}\n\nMensagem: {text}"
+Line 166: 
+Line 167: contents = [context_text]
+Line 168: if media_bytes and media_mime:
+Line 169: contents.append({
+Line 170: "mime_type": media_mime,
+Line 171: "data": media_bytes
+Line 172: })
+Line 173: 
+Line 174: try:
+Line 175: model = _get_model()
+Line 176: 
+Line 177: # LÃ³gica de Retry com Backoff (Anti-429 e Timeouts)
+Line 178: MAX_RETRIES = 3
+Line 179: raw = ""
+Line 180: for attempt in range(MAX_RETRIES):
+Line 181: try:
+Line 182: import asyncio
+Line 183: response = await model.generate_content_async(contents, request_options={"timeout": 15.0})
+Line 184: raw = response.text.strip()
+Line 185: break
+Line 186: except Exception as e:
+Line 187: err_str = str(e).lower()
+Line 188: if "429" in err_str or "exhausted" in err_str or "too many requests" in err_str:
+Line 189: logger.warning(f"Gemini Rate Limit (429). Tentativa {attempt+1}/{MAX_RETRIES}. Aguardando...")
+Line 190: if attempt == MAX_RETRIES - 1:
+Line 191: return "ðŸ¥µ Gente, o Google me botou de castigo (limite de uso)! Espera uns minutinhos e tenta de novo, por favor?"
+Line 192: await asyncio.sleep(5 * (attempt + 1))
+Line 193: elif "timeout" in err_str or "connection" in err_str or "504" in err_str or "deadline" in err_str:
+Line 194: logger.warning(f"Timeout Gemini. Tentativa {attempt+1}/{MAX_RETRIES}.")
+Line 195: if attempt == MAX_RETRIES - 1:
+Line 196: return "ðŸ”Œ Minha conexÃ£o com o cÃ©rebro (Google) falhou... Me dÃ¡ 1 minutinho e repete?"
+Line 197: await asyncio.sleep(2)
+Line 198: else:
+Line 199: logger.error(f"Erro no Gemini: {e}")
+Line 200: return "ðŸ¤¯ Deu um curto-circuito interno aqui ao pensar nisso. (Erro na IA)"
+Line 201: 
+Line 202: # Logar uso da API Gemini
+Line 203: try:
+Line 204: tokens = 0
+Line 205: if hasattr(response, "usage_metadata") and hasattr(response.usage_metadata, "total_token_count"):
+Line 206: tokens = response.usage_metadata.total_token_count
+Line 207: 
+Line 208: if tokens > 0:
+Line 209: sb.table("api_usage_logs").insert({
+Line 210: "service_name": "gemini-3.5-flash-lite",
+Line 211: "tokens_used": tokens
+Line 212: }).execute()
+Line 213: except Exception as e:
+Line 214: logger.warning("Falha ao registrar log de API: %s", e)
+Line 215: 
+Line 216: # Parse do JSON
+Line 217: import re
+Line 218: clean_raw = re.sub(r"^```(?:json)?\n?", "", raw.strip(), flags=re.IGNORECASE)
+Line 219: clean_raw = re.sub(r"\n?```$", "", clean_raw.strip(), flags=re.IGNORECASE).strip()
+Line 220: 
+Line 221: result = json.loads(clean_raw)
+Line 222: 
+Line 223: actions = result if isinstance(result, list) else [result]
+Line 224: 
+Line 225: final_replies = []
+Line 226: action_replies = []
+Line 227: 
+Line 228: for act in actions:
+Line 229: intent = act.get("intent", "chat")
+Line 230: params = act.get("params", {})
+Line 231: reply = act.get("reply", "Entendido!")
+Line 232: 
+Line 233: logger.info("Intent: %s | Params: %s | Sender: @%s", intent, params, sender["username"])
+Line 234: 
+Line 235: # Adiciona o texto natural se houver (evita repetir "Anotado" pra cada item)
+Line 236: if reply and reply not in final_replies:
+Line 237: final_replies.append(reply)
+Line 238: 
+Line 239: # Executar a aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o correspondente
+Line 240: action_reply = await _execute_intent(intent, params, sender, sb)
+Line 241: if action_reply:
+Line 242: action_replies.append(action_reply)
+Line 243: 
+Line 244: # Montar resposta final combinada
+Line 245: combined_text = "\n".join(final_replies)
+Line 246: if action_replies:
+Line 247: combined_text += "\n\n" + "\n".join(action_replies)
+Line 248: 
+Line 249: final_reply = combined_text or "ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Feito!"
+Line 250: 
+Line 251: # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Salvar no HistÃƒÆ’Ã‚Â³rico de Chat (Fire and Forget) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+Line 252: try:
+Line 253: # Salva a mensagem do usuÃƒÆ’Ã‚Â¡rio (ou tag [Imagem] / [ÃƒÆ’Ã‚Âudio])
+Line 254: user_msg = text if text else ("[MÃƒÆ’Ã‚Â­dia]" if media_bytes else "")
+Line 255: if user_msg:
+Line 256: sb.table("chat_history").insert({"profile_id": sender["id"], "message": user_msg, "is_bot": False}).execute()
+Line 257: # Salva a resposta do bot
+Line 258: sb.table("chat_history").insert({"profile_id": sender["id"], "message": final_reply, "is_bot": True}).execute()
+Line 259: except Exception as e:
+Line 260: logger.warning("Falha ao salvar chat_history (Tabela nÃƒÆ’Ã‚Â£o existe?): %s", e)
+Line 261: 
+Line 262: return final_reply
+Line 263: 
+Line 264: except json.JSONDecodeError as e:
+Line 265: logger.error("Gemini retornou JSON invÃƒÆ’Ã‚Â¡lido: %s - Raw: %s", e, raw)
+Line 266: return "ÃƒÂ°Ã…Â¸Ã‚Â¤Ã¢â‚¬â€œ Desculpa, tive um problema ao processar. Tenta de novo?"
+Line 267: 
+Line 268: except Exception as e:
+Line 269: logger.exception("Erro no handler de IA: %s", e)
+Line 270: return "ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â Algo deu errado. Tenta novamente em instantes."
+Line 271: 
+Line 272: 
+Line 273: # ---------------------------------------------------------------------------
+Line 274: # Dispatcher de intents
+Line 275: # ---------------------------------------------------------------------------
+Line 276: async def _execute_intent(
+Line 277: intent: str, params: dict[str, Any], sender: dict, sb: Client
+Line 278: ) -> str | None:
+Line 279: """Executa a aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o no Supabase baseado no intent e retorna info extra."""
+Line 280: 
+Line 281: match intent:
+Line 282: # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ TAREFAS ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+Line 283: case "task_create":
+Line 284: assignee_id = None
+Line 285: if params.get("assignee_username"):
+Line 286: a = sb.table("profiles").select("id").ilike("username", params.get("assignee_username")).single().execute()
+Line 287: if a.data:
+Line 288: assignee_id = a.data["id"]
+Line 289: else:
+Line 290: # LÃƒÆ’Ã‚Â³gica Round-Robin Real Justa: avalia carga histÃƒÆ’Ã‚Â³rica + similaridade
+Line 291: try:
+Line 292: rr_res = sb.table("profiles").select("id").execute()
+Line 293: if rr_res.data:
+Line 294: profiles = [p["id"] for p in rr_res.data]
+Line 295: 
+Line 296: from datetime import datetime, timedelta
+Line 297: from app.logger import BRT
+Line 298: last_30d = (datetime.now(BRT) - timedelta(days=30)).isoformat()
+Line 299: 
+Line 300: t_res = sb.table("tasks").select("assignee_id, title, status").gte("created_at", last_30d).execute()
+Line 301: 
+Line 302: # Score: quanto MENOR, maior a chance de receber a tarefa.
+Line 303: scores = {p: 0 for p in profiles}
+Line 304: 
+Line 305: # Extrair palavras chaves do tÃƒÆ’Ã‚Â­tulo novo (maior q 3 letras)
+Line 306: new_title_words = set(w.lower() for w in params["title"].split() if len(w) > 3)
+Line 307: 
+Line 308: if t_res.data:
+Line 309: for t in t_res.data:
+Line 310: aid = t.get("assignee_id")
+Line 311: if aid in scores:
+Line 312: # Carga geral: tarefa em aberto pesa mais (2), concluÃƒÆ’Ã‚Â­da pesa menos (1)
+Line 313: if t.get("status") != "done":
+Line 314: scores[aid] += 2
+Line 315: else:
+Line 316: scores[aid] += 1
+Line 317: 
+Line 318: # PuniÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o por repetiÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o da MESMA tarefa (justiÃƒÆ’Ã‚Â§a no rodÃƒÆ’Ã‚Â­zio)
+Line 319: if t.get("title"):
+Line 320: old_title_words = set(w.lower() for w in t["title"].split() if len(w) > 3)
+Line 321: if new_title_words & old_title_words:
+Line 322: # Fez a mesma coisa recentemente? PuniÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o altÃƒÆ’Ã‚Â­ssima (+5)
+Line 323: scores[aid] += 5
+Line 324: 
+Line 325: if scores:
+Line 326: assignee_id = min(scores, key=scores.get)
+Line 327: except Exception as e:
+Line 328: logger.error("Erro no Round-Robin Justo: %s", e)
+Line 329: import random
+Line 330: assignee_id = random.choice(rr_res.data)["id"] if rr_res and rr_res.data else None
+Line 331: 
+Line 332: insert_data = {
+Line 333: "title": params["title"],
+Line 334: "description": params.get("description"),
+Line 335: "assignee_id": assignee_id,
+Line 336: "created_by": sender["id"],
+Line 337: "status": "todo",
+Line 338: }
+Line 339: 
+Line 340: # Prazos
+Line 341: if params.get("due_date"):
+Line 342: insert_data["due_date"] = params["due_date"]
+Line 343: 
+Line 344: r = sb.table("tasks").insert(insert_data).execute()
+Line 345: 
+Line 346: task = r.data[0]
+Line 347: code = f"#{str(task['seq_id']).zfill(4)}"
+Line 348: 
+Line 349: # Buscar username do assignee selecionado (se Round Robin)
+Line 350: a_username = params.get("assignee_username")
+Line 351: if not a_username and assignee_id:
+Line 352: try:
+Line 353: u_req = sb.table("profiles").select("username").eq("id", assignee_id).single().execute()
+Line 354: a_username = u_req.data["username"]
+Line 355: except Exception:
+Line 356: pass
+Line 357: 
+Line 358: resp_str = f"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹ Tarefa {code} criada!"
+Line 359: if a_username:
+Line 360: resp_str = f"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹ Tarefa {code} criada e atribuÃƒÆ’Ã‚Â­da a @{a_username}!"
+Line 361: resp_str += f" (Prazo: {insert_data['due_date']})"
+Line 362: 
+Line 363: return resp_str
+Line 364: 
+Line 365: case "task_list":
+Line 366: query = sb.table("tasks").select("seq_id, title, status, assignee_id, due_date").neq("status", "done")
+Line 367: if params.get("status"):
+Line 368: query = query.eq("status", params["status"])
+Line 369: r = query.order("seq_id").execute()
+Line 370: 
+Line 371: if not r.data:
+Line 372: return "ÃƒÂ°Ã…Â¸Ã…Â½Ã¢â‚¬Â° Nenhuma tarefa pendente!"
+Line 373: 
+Line 374: lines = []
+Line 375: emoji_map = {"backlog": "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹", "todo": "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…â€™", "in_progress": "ÃƒÂ¢Ã…Â¡Ã‚Â¡"}
+Line 376: for t in r.data:
+Line 377: code = f"#{str(t['seq_id']).zfill(4)}"
+Line 378: e = emoji_map.get(t["status"], "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢")
+Line 379: prazo = f" ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¦ {t['due_date']}" if t.get("due_date") else ""
+Line 380: lines.append(f"{e} `{code}` {t['title']}{prazo}")
+Line 381: return "\n".join(lines)
+Line 382: 
+Line 383: case "task_update":
+Line 384: seq_id = params.get("seq_id")
+Line 385: if not seq_id:
+Line 386: return "ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â Preciso do nÃƒÆ’Ã‚Âºmero da tarefa (ex: #0003)."
+Line 387: 
+Line 388: update = {}
+Line 389: if params.get("status"):
+Line 390: update["status"] = params["status"]
+Line 391: if params.get("due_date"):
+Line 392: update["due_date"] = params["due_date"]
+Line 393: if params.get("assignee_username"):
+Line 394: a = sb.table("profiles").select("id").ilike("username", params["assignee_username"]).single().execute()
+Line 395: if a.data:
+Line 396: update["assignee_id"] = a.data["id"]
+Line 397: 
+Line 398: if update:
+Line 399: sb.table("tasks").update(update).eq("seq_id", seq_id).execute()
+Line 400: return f"ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Tarefa #{str(seq_id).zfill(4)} atualizada!"
+Line 401: return None
+Line 402: 
+Line 403: # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ FINANÃƒÆ’Ã¢â‚¬Â¡AS ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+Line 404: case "transaction_create":
+Line 405: beneficiary_id = None
+Line 406: if params.get("beneficiary_username"):
+Line 407: b = sb.table("profiles").select("id").ilike("username", params["beneficiary_username"]).single().execute()
+Line 408: if b.data:
+Line 409: beneficiary_id = b.data["id"]
+Line 410: 
+Line 411: tx_type = params.get("type", "collective")
+Line 412: sb.table("transactions").insert({
+Line 413: "description": params["description"],
+Line 414: "amount": float(params["amount"]),
+Line 415: "type": tx_type,
+Line 416: "paid_by": sender["id"],
+Line 417: "beneficiary_id": beneficiary_id,
+Line 418: "category": params.get("category"),
+Line 419: "transaction_date": str(date.today()),
+Line 420: }).execute()
+Line 421: 
+Line 422: amount_fmt = f"R$ {float(params['amount']):.2f}"
+Line 423: tipo = "Coletivo" if tx_type == "collective" else "Individual"
+Line 424: return f"ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â° {tipo} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ {amount_fmt}"
+Line 425: 
+Line 426: case "transaction_list":
+Line 427: limit = params.get("limit", 10)
+Line 428: r = sb.table("transactions").select("description, amount, type, transaction_date").order("transaction_date", desc=True).limit(limit).execute()
+Line 429: 
+Line 430: if not r.data:
+Line 431: return "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â­ Nenhuma transaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o registrada."
+Line 432: 
+Line 433: lines = []
+Line 434: for t in r.data:
+Line 435: emoji = "ÃƒÂ°Ã…Â¸Ã‚ÂÃ‚Â " if t["type"] == "collective" else "ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ‚Â¤"
+Line 436: lines.append(f"{emoji} {t['description']} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â R$ {float(t['amount']):.2f}")
+Line 437: return "\n".join(lines)
+Line 438: 
+Line 439: case "balance_check":
+Line 440: r = sb.table("balance_summary").select("*").execute()
+Line 441: if not r.data:
+Line 442: return "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â  Sem dados de rateio ainda."
+Line 443: 
+Line 444: lines = ["ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â  *Rateio atual:*\n"]
+Line 445: for b in r.data:
+Line 446: balance = float(b["balance"])
+Line 447: sinal = "+" if balance >= 0 else ""
+Line 448: lines.append(f"@{b['username']}: {sinal}R$ {balance:.2f}")
+Line 449: return "\n".join(lines)
+Line 450: 
+Line 451: # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ LISTA DE COMPRAS ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+Line 452: case "shopping_add":
+Line 453: insert_data = {
+Line 454: "item_name": params["item_name"],
+Line 455: "quantity": params.get("quantity", 1),
+Line 456: "category": params.get("category", "Geral"),
+Line 457: "estimated_price": params.get("estimated_price"),
+Line 458: "added_by": sender["id"],
+Line 459: "status": "pending",
+Line 460: }
+Line 461: sb.table("shopping_list").insert(insert_data).execute()
+Line 462: return f"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ¢â‚¬â„¢ {params['quantity'] if params.get('quantity') else 1}x {params['item_name']} adicionado ÃƒÆ’Ã‚Â  lista ({insert_data['category']})!"
+Line 463: 
+Line 464: case "shopping_update":
+Line 465: update_data = {}
+Line 466: if params.get("quantity"):
+Line 467: update_data["quantity"] = params["quantity"]
+Line 468: 
+Line 469: sb.table("shopping_list").update(update_data).eq("item_name", params["item_name"]).eq("status", "pending").execute()
+Line 470: return f"🛒 Item {params['item_name']} atualizado (Nova qtd: {params.get('quantity', '?')})!"
+Line 471: 
+Line 472: case "shopping_list":
+Line 473: r = sb.table("shopping_list").select("item_name, quantity, category").eq("status", "pending").execute()
+Line 474: if not r.data:
+Line 475: return "ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Lista vazia!"
+Line 476: 
+Line 477: lines = []
+Line 478: for item in r.data:
+Line 479: cat = f" _({item['category']})_" if item.get("category") else ""
+Line 480: lines.append(f"ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ {item['item_name']} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â {item['quantity']}{cat}")
+Line 481: return "\n".join(lines)
+Line 482: 
+Line 483: case "shopping_done":
+Line 484: item_name = params.get("item_name", "")
+Line 485: r = sb.table("shopping_list").update({
+Line 486: "status": "purchased",
+Line 487: "purchased_by": sender["id"],
+Line 488: }).ilike("item_name", f"%{item_name}%").eq("status", "pending").execute()
+Line 489: 
+Line 490: if r.data:
+Line 491: return f"ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ *{r.data[0]['item_name']}* marcado como comprado!"
+Line 492: return f"ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â NÃƒÆ’Ã‚Â£o encontrei '{item_name}' na lista."
+Line 493: 
+Line 494: # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ CLIMA ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+Line 495: case "weather_check":
+Line 496: from app.services.weather import get_weather
+Line 497: city = params.get("city", "SÃƒÆ’Ã‚Â£o Paulo")
+Line 498: timeframe = params.get("timeframe", "hoje")
+Line 499: return await get_weather(city, timeframe)
+Line 500: 
+Line 501: # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ CONVERSA ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+Line 502: case "chat":
+Line 503: return None  # SÃƒÆ’Ã‚Â³ retorna o reply do Gemini
+Line 504: 
+Line 505: case _:
+Line 506: logger.warning("Intent desconhecida: %s", intent)
+Line 507: return None
+Line 508: import asyncio
+Line 509: from google.api_core.exceptions import ResourceExhausted
+Line 510: 
+Line 511: ai_queue = asyncio.Queue()
+Line 512: 
+Line 513: async def start_ai_worker():
+Line 514: logger.info("Worker de IA iniciado. Escutando fila de mensagens...")
+Line 515: while True:
+Line 516: try:
+Line 517: task = await ai_queue.get()
+Line 518: text = task.get("text")
+Line 519: chat_id = task.get("chat_id")
+Line 520: media_bytes = task.get("media_bytes")
+Line 521: media_mime = task.get("media_mime")
+Line 522: 
+Line 523: reply = await _process_ai_message(text, chat_id, media_bytes, media_mime)
+Line 524: if reply:
+Line 525: from app.services.telegram import send_message
+Line 526: await send_message(chat_id, reply)
+Line 527: 
+Line 528: except Exception as e:
+Line 529: logger.error("Erro fatal no AI Worker: %s", e)
+Line 530: if chat_id:
+Line 531: try:
+Line 532: from app.services.telegram import send_message
+Line 533: await send_message(chat_id, "🚨 Desculpe, ocorreu um erro fatal no sistema enquanto eu tentava processar sua mensagem. Tente novamente mais tarde!")
+Line 534: except Exception as inner_e:
+Line 535: logger.error("Falha ao enviar mensagem de erro: %s", inner_e)
+Line 536: finally:
+Line 537: ai_queue.task_done()
+Line 538: 
+Line 539: async def handle_ai_message(text: str, chat_id: int, media_bytes: bytes | None = None, media_mime: str | None = None) -> str:
+Line 540: """
+Line 541: FunÃƒÂ§ÃƒÂ£o de entrada: envia Typing pro Telegram e enfileira.
+Line 542: Para manter a retrocompatibilidade do cÃƒÂ³digo antigo, retorna string vazia ou feedback inicial.
+Line 543: """
+Line 544: from app.services.telegram import send_chat_action
+Line 545: 
+Line 546: # Send appropriate action immediately
+Line 547: action = "upload_photo" if media_bytes and "image" in str(media_mime) else "record_voice" if media_bytes else "typing"
+Line 548: await send_chat_action(chat_id, action)
+Line 549: 
+Line 550: await ai_queue.put({
+Line 551: "text": text,
+Line 552: "chat_id": chat_id,
+Line 553: "media_bytes": media_bytes,
+Line 554: "media_mime": media_mime
+Line 555: })
+Line 556: 
+Line 557: return ""  # O worker enviarÃƒÂ¡ a resposta diretamente.
+Line 558: 

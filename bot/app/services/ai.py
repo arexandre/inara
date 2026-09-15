@@ -1,11 +1,11 @@
 """
-ServiÃƒÆ’Ã‚Â§o de IA (Google Gemini) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Processamento de linguagem natural.
+Serviço de IA (Google Gemini) — Processamento de linguagem natural.
 
 Fluxo:
   1. Recebe mensagem livre do Telegram.
-  2. Envia ao Gemini com System Prompt contextual (perfil + domÃƒÆ’Ã‚Â­nios).
-  3. Gemini retorna JSON estruturado com intent + parÃƒÆ’Ã‚Â¢metros.
-  4. Dispatcher executa a aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o correspondente no Supabase.
+  2. Envia ao Gemini com System Prompt contextual (perfil + domínios).
+  3. Gemini retorna JSON estruturado com intent + parâmetros.
+  4. Dispatcher executa a ação correspondente no Supabase.
   5. Retorna resposta formatada para o Telegram.
 """
 
@@ -21,13 +21,13 @@ from supabase import create_client, Client
 from app.logger import logger
 
 # ---------------------------------------------------------------------------
-# InstanciaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o do Modelo
+# Instanciação do Modelo
 # ---------------------------------------------------------------------------
 def _get_model():
     from datetime import datetime
     from app.logger import BRT
     agora = datetime.now(BRT)
-    dias = ["Segunda", "TerÃƒÆ’Ã‚Â§a", "Quarta", "Quinta", "Sexta", "SÃƒÆ’Ã‚Â¡bado", "Domingo"]
+    dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
     dia_semana = dias[agora.weekday()]
     
     dynamic_sys_prompt = f"Data atual: {agora.strftime('%Y-%m-%d %H:%M:%S')} ({dia_semana}).\n{SYSTEM_PROMPT}"
@@ -51,80 +51,48 @@ def _get_supabase() -> Client:
 
 
 # ---------------------------------------------------------------------------
-# System Prompt ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â define a personalidade e as capacidades da Inara
+# System Prompt — define a personalidade e as capacidades da Inara
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT = """
-VocÃƒÆ’Ã‚Âª ÃƒÆ’Ã‚Â© a Inara, uma assistente domÃƒÆ’Ã‚Â©stica inteligente e carinhosa que gerencia a casa de 3 moradores.
+Você é a Inara, a "síndica" virtual e assistente inteligente da casa.
+Sua personalidade é acolhedora, levemente irônica, muito eficiente e pragmática.
+Você responde sempre de forma amigável, mas não gosta de enrolação.
 
-## Suas Capacidades (DomÃƒÆ’Ã‚Â­nios)
+### Regras Base:
+- O fuso horário de referência é sempre BRT (America/Sao_Paulo).
+- Você DEVE extrair as informações da mensagem do usuário e gerar um JSON estruturado de Intent.
+- NUNCA retorne nada fora do JSON. Você é estritamente uma interface de conversão de Texto -> JSON.
+- SE não houver comando claro, use o intent "chat" e no parâmetro "reply" coloque sua resposta conversacional.
 
-### 1. TAREFAS (tasks)
-- Criar tarefas domÃƒÆ’Ã‚Â©sticas (lavar louÃƒÆ’Ã‚Â§a, limpar banheiro, etc.)
-- Listar tarefas pendentes
-- Marcar tarefas como concluÃƒÆ’Ã‚Â­das
-- Atribuir tarefas a moradores
-
-### 2. FINANÃƒÆ’Ã¢â‚¬Â¡AS (transactions)  
-- Registrar gastos coletivos (conta de luz, mercado, etc.)
-- Registrar gastos individuais (pix entre moradores)
-- Consultar saldo/rateio entre moradores
-
-### 3. LISTA DE COMPRAS (shopping_list)
-- Adicionar itens ÃƒÆ’Ã‚Â  lista
-- Remover itens
-- Marcar itens como comprados
-
-## Regras de Resposta
-
-SEMPRE responda com um JSON vÃƒÆ’Ã‚Â¡lido no seguinte formato:
-
-```json
-{
-  "intent": "nome_da_acao",
-  "params": { ... },
-  "reply": "Mensagem simpÃƒÆ’Ã‚Â¡tica para o usuÃƒÆ’Ã‚Â¡rio em portuguÃƒÆ’Ã‚Âªs"
-}
-```
-
-### Intents disponÃƒÆ’Ã‚Â­veis:
-
-| Intent | Params | DescriÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o |
+### Comandos (Intents) Suportados:
+| Intent | Params | Descrição |
 |--------|--------|-----------|
-| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Criar nova tarefa. Se o usuÃƒÆ’Ã‚Â¡rio falar "atÃƒÆ’Ã‚Â© o fim de semana" ou "amanhÃƒÆ’Ã‚Â£", calcule a data exata. Se nÃƒÆ’Ã‚Â£o especificar prazo, OBRIGATORIAMENTE aplique um peso semÃƒÆ’Ã‚Â¢ntico baseando-se na urgÃƒÆ’Ã‚Âªncia (ex: louÃƒÆ’Ã‚Â§a = data de hoje, pintar parede = hoje + 7 dias). |
+| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Criar nova tarefa. Se o usuário falar "até o fim de semana" ou "amanhã", calcule a data exata. Se não especificar prazo, OBRIGATORIAMENTE aplique um peso semântico baseando-se na urgência (ex: louça = data de hoje, pintar parede = hoje + 7 dias). |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
 | `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
-| `transaction_list` | `limit?` | Listar transaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes recentes |
-| `balance_check` | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | Ver rateio/saldo |
-| `shopping_add` | `item_name`, `quantity?`, `category?` (obrigatÃƒÆ’Ã‚Â³rio: [Mercado], [FarmÃƒÆ’Ã‚Â¡cia], [Petshop], etc.), `estimated_price?` | Adicionar item. |
-| `shopping_update`| `item_name`, `quantity?` | Atualizar a quantidade de um item que jÃƒÆ’Ã‚Â¡ estÃƒÆ’Ã‚Â¡ na lista. |
+| `transaction_list` | `limit?` | Listar transações recentes |
+| `balance_check` | - | Ver rateio/saldo |
+| `shopping_add` | `item_name`, `quantity?`, `category?` (obrigatório: [Mercado], [Farmácia], [Petshop], etc.), `estimated_price?` | Adicionar item. |
+| `shopping_update`| `item_name`, `quantity?` | Atualizar a quantidade de um item que já está na lista. |
 | `shopping_done` | `item_name` | Marcar item como comprado |
-| `weather_check` | `city?` (default: Araguari), `timeframe?` (hoje ou amanhÃƒÆ’Ã‚Â£) | Ver previsÃƒÆ’Ã‚Â£o do tempo |
-| `chat` | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | Quando nÃƒÆ’Ã‚Â£o ÃƒÆ’Ã‚Â© um comando, apenas conversa casual |
+| `weather_check` | `city?` (default: Araguari), `timeframe?` (hoje ou amanhã) | Ver previsão do tempo |
+| `chat` | `reply` | Quando não é um comando, apenas conversa casual |
 
-### Lidar com MÃƒÆ’Ã‚Â­dias (Fotos e ÃƒÆ’Ã‚Âudio) - RESILIÃƒÆ’Ã…Â NCIA MÃƒÆ’Ã‚ÂXIMA:
-- **ÃƒÆ’Ã‚Âudio**: O usuÃƒÆ’Ã‚Â¡rio envia ÃƒÆ’Ã‚Â¡udios caÃƒÆ’Ã‚Â³ticos com ruÃƒÆ’Ã‚Â­do conversacional (ex: "Oi Inara, ehh..."). **IGNORE o ruÃƒÆ’Ã‚Â­do e as saudaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes**. VÃƒÆ’Ã‚Â¡ direto ao ponto e extraia APENAS as intenÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes concretas. Seja estrito na formaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o do JSON.
-- **Fotos (Notas Fiscais)**: Se enviar foto, o pagador (`paid_by`) ÃƒÆ’Ã‚Â© SEMPRE o Remetente da mensagem. Se o usuÃƒÆ’Ã‚Â¡rio falar na legenda algo como "O chocolate ÃƒÆ’Ã‚Â© sÃƒÆ’Ã‚Â³ meu", separe a nota: crie mÃƒÆ’Ã‚Âºltiplos `transaction_create` (um `type=individual` para o chocolate com `beneficiary_username` igual ao remetente, e outro `type=collective` para o resto).
-- **Lista de Compras (DeduplicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o)**: Se o usuÃƒÆ’Ã‚Â¡rio pedir para adicionar um item que JÃƒÆ’Ã‚Â CONSTA na "Lista de Compras Atual" informada no contexto, NÃƒÆ’Ã†â€™O crie um novo. Use `shopping_update` somando as quantidades. Tagueie obrigatoriamente a `category` (ex: Mercado, FarmÃƒÆ’Ã‚Â¡cia).
+### Lidar com Mídias (Fotos e Áudio) - RESILIÊNCIA MÁXIMA:
+- **Áudio**: O usuário envia áudios caóticos com ruído conversacional (ex: "Oi Inara, ehh..."). **IGNORE o ruído e as saudações**. Vá direto ao ponto e extraia APENAS as intenções concretas. Seja estrito na formatação do JSON.
+- **Fotos (Notas Fiscais)**: Se enviar foto, o pagador (`paid_by`) é SEMPRE o Remetente da mensagem. Se o usuário falar na legenda algo como "O chocolate é só meu", separe a nota: crie múltiplos `transaction_create` (um `type=individual` para o chocolate com `beneficiary_username` igual ao remetente, e outro `type=collective` para o resto).
+- **Lista de Compras (Deduplicação)**: Se o usuário pedir para adicionar um item que JÁ CONSTA na "Lista de Compras Atual" informada no contexto, NÃO crie um novo. Use `shopping_update` somando as quantidades. Tagueie obrigatoriamente a `category` (ex: Mercado, Farmácia).
 
-### Exemplos de InterpretaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o:
-- "Comprei 3kg de frango por 45 reais" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ transaction_create (collective, alimentaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o)
-- "Vai chover amanhÃƒÆ’Ã‚Â£?" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ weather_check (timeframe=amanhÃƒÆ’Ã‚Â£)
-- [Imagem de cupom fiscal de R$ 120,50 no Carrefour] ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ transaction_create (amount=120.50, description="Compra no Carrefour", type="collective")
-- "Adiciona papel higiÃƒÆ’Ã‚Âªnico na lista" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ shopping_add
-- "Fiz um pix de 50 pro JoÃƒÆ’Ã‚Â£o" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ transaction_create (individual, beneficiary=JoÃƒÆ’Ã‚Â£o)
-- "Cria uma tarefa pra limpar o banheiro" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ task_create
-- "Marca a tarefa #0003 como feita" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ task_update (seq_id=3, status=done)
-- "Como tÃƒÆ’Ã‚Â¡ o saldo?" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ balance_check
-- "Bom dia, Inara!" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ chat
-
-Se nÃƒÆ’Ã‚Â£o entender a intenÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o, use intent "chat" e pergunte educadamente.
-O campo "reply" DEVE ser uma mensagem em portuguÃƒÆ’Ã‚Âªs, simpÃƒÆ’Ã‚Â¡tica e breve.
+### Exemplos de Interpretação:
+- "Comprei 3kg de frango por 45 reais" -> transaction_create (collective, alimentação)
+- "Vai chover amanhã?" -> weather_check (timeframe=amanhã)
+- [Imagem de cupom fiscal de R$ 120,50 no Carrefour] -> transaction_create (amount=120.50, description="Compra no Carrefour", type="collective")
 """
 
 
 # ---------------------------------------------------------------------------
-# Handler principal ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â chamado pelo webhook
+# Handler principal — chamado pelo webhook
 # ---------------------------------------------------------------------------
 async def _process_ai_message(
     text: str, 
@@ -133,7 +101,7 @@ async def _process_ai_message(
     media_mime: str | None = None
 ) -> str:
     """
-    Processa uma mensagem livre usando o Gemini e executa a aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o no Supabase.
+    Processa uma mensagem livre usando o Gemini e executa a ação no Supabase.
     Retorna a mensagem formatada para enviar ao Telegram.
     """
     sb = _get_supabase()
@@ -148,7 +116,7 @@ async def _process_ai_message(
 
     if not sender:
         return (
-            "ÃƒÂ¢Ã‚ÂÃ…â€™ Seu Telegram nÃƒÆ’Ã‚Â£o estÃƒÆ’Ã‚Â¡ vinculado a nenhum morador.\n"
+            "❌ Seu Telegram não está vinculado a nenhum morador.\n"
             "Acesse o app Inara e vincule seu perfil primeiro."
         )
 
@@ -157,7 +125,7 @@ async def _process_ai_message(
     from app.logger import BRT
     hoje_str = datetime.now(BRT).strftime("%Y-%m-%d")
     
-    # Buscar lista de compras ativa para DeduplicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o
+    # Buscar lista de compras ativa para Deduplicação
     shop_res = sb.table("shopping_list").select("item_name, quantity").eq("status", "pending").execute()
     shop_items = [f"- {i['item_name']} (Qtd: {i['quantity'] or 1})" for i in shop_res.data] if shop_res.data else ["Nenhum"]
     shop_context = "\nLista de Compras Atual:\n" + "\n".join(shop_items)
@@ -174,7 +142,7 @@ async def _process_ai_message(
     try:
         model = _get_model()
         
-        # LÃ³gica de Retry com Backoff (Anti-429 e Timeouts)
+        # Lógica de Retry com Backoff (Anti-429 e Timeouts)
         MAX_RETRIES = 3
         raw = ""
         for attempt in range(MAX_RETRIES):
@@ -188,16 +156,16 @@ async def _process_ai_message(
                 if "429" in err_str or "exhausted" in err_str or "too many requests" in err_str:
                     logger.warning(f"Gemini Rate Limit (429). Tentativa {attempt+1}/{MAX_RETRIES}. Aguardando...")
                     if attempt == MAX_RETRIES - 1:
-                        return "ðŸ¥µ Gente, o Google me botou de castigo (limite de uso)! Espera uns minutinhos e tenta de novo, por favor?"
+                        return "🥵 Gente, o Google me botou de castigo (limite de uso)! Espera uns minutinhos e tenta de novo, por favor?"
                     await asyncio.sleep(5 * (attempt + 1))
                 elif "timeout" in err_str or "connection" in err_str or "504" in err_str or "deadline" in err_str:
                     logger.warning(f"Timeout Gemini. Tentativa {attempt+1}/{MAX_RETRIES}.")
                     if attempt == MAX_RETRIES - 1:
-                        return "ðŸ”Œ Minha conexÃ£o com o cÃ©rebro (Google) falhou... Me dÃ¡ 1 minutinho e repete?"
+                        return "🔌 Minha conexão com o cérebro (Google) falhou... Me dá 1 minutinho e repete?"
                     await asyncio.sleep(2)
                 else:
                     logger.error(f"Erro no Gemini: {e}")
-                    return "ðŸ¤¯ Deu um curto-circuito interno aqui ao pensar nisso. (Erro na IA)"
+                    return "🤯 Deu um curto-circuito interno aqui ao pensar nisso. (Erro na IA)"
         
         # Logar uso da API Gemini
         try:
@@ -236,7 +204,7 @@ async def _process_ai_message(
             if reply and reply not in final_replies:
                 final_replies.append(reply)
                 
-            # Executar a aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o correspondente
+            # Executar a ação correspondente
             action_reply = await _execute_intent(intent, params, sender, sb)
             if action_reply:
                 action_replies.append(action_reply)
@@ -246,28 +214,28 @@ async def _process_ai_message(
         if action_replies:
             combined_text += "\n\n" + "\n".join(action_replies)
             
-        final_reply = combined_text or "ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Feito!"
+        final_reply = combined_text or "✅ Feito!"
         
-        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Salvar no HistÃƒÆ’Ã‚Â³rico de Chat (Fire and Forget) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+        # ── Salvar no Histórico de Chat (Fire and Forget) ──
         try:
-            # Salva a mensagem do usuÃƒÆ’Ã‚Â¡rio (ou tag [Imagem] / [ÃƒÆ’Ã‚Âudio])
-            user_msg = text if text else ("[MÃƒÆ’Ã‚Â­dia]" if media_bytes else "")
+            # Salva a mensagem do usuário (ou tag [Imagem] / [Áudio])
+            user_msg = text if text else ("[Mídia]" if media_bytes else "")
             if user_msg:
                 sb.table("chat_history").insert({"profile_id": sender["id"], "message": user_msg, "is_bot": False}).execute()
             # Salva a resposta do bot
             sb.table("chat_history").insert({"profile_id": sender["id"], "message": final_reply, "is_bot": True}).execute()
         except Exception as e:
-            logger.warning("Falha ao salvar chat_history (Tabela nÃƒÆ’Ã‚Â£o existe?): %s", e)
+            logger.warning("Falha ao salvar chat_history (Tabela não existe?): %s", e)
 
         return final_reply
 
     except json.JSONDecodeError as e:
-        logger.error("Gemini retornou JSON invÃƒÆ’Ã‚Â¡lido: %s - Raw: %s", e, raw)
-        return "ÃƒÂ°Ã…Â¸Ã‚Â¤Ã¢â‚¬â€œ Desculpa, tive um problema ao processar. Tenta de novo?"
+        logger.error("Gemini retornou JSON inválido: %s - Raw: %s", e, raw)
+        return "🤖 Desculpa, tive um problema ao processar. Tenta de novo?"
 
     except Exception as e:
         logger.exception("Erro no handler de IA: %s", e)
-        return "ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â Algo deu errado. Tenta novamente em instantes."
+        return "⚠️ Algo deu errado. Tenta novamente em instantes."
 
 
 # ---------------------------------------------------------------------------
@@ -276,10 +244,10 @@ async def _process_ai_message(
 async def _execute_intent(
     intent: str, params: dict[str, Any], sender: dict, sb: Client
 ) -> str | None:
-    """Executa a aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o no Supabase baseado no intent e retorna info extra."""
+    """Executa a ação no Supabase baseado no intent e retorna info extra."""
 
     match intent:
-        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ TAREFAS ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+        # ── TAREFAS ─────────────────────────────────────────────────
         case "task_create":
             assignee_id = None
             if params.get("assignee_username"):
@@ -287,7 +255,7 @@ async def _execute_intent(
                 if a.data:
                     assignee_id = a.data["id"]
             else:
-                # LÃƒÆ’Ã‚Â³gica Round-Robin Real Justa: avalia carga histÃƒÆ’Ã‚Â³rica + similaridade
+                # Lógica Round-Robin Real Justa: avalia carga histórica + similaridade
                 try:
                     rr_res = sb.table("profiles").select("id").execute()
                     if rr_res.data:
@@ -302,24 +270,24 @@ async def _execute_intent(
                         # Score: quanto MENOR, maior a chance de receber a tarefa.
                         scores = {p: 0 for p in profiles}
                         
-                        # Extrair palavras chaves do tÃƒÆ’Ã‚Â­tulo novo (maior q 3 letras)
+                        # Extrair palavras chaves do título novo (maior q 3 letras)
                         new_title_words = set(w.lower() for w in params["title"].split() if len(w) > 3)
                         
                         if t_res.data:
                             for t in t_res.data:
                                 aid = t.get("assignee_id")
                                 if aid in scores:
-                                    # Carga geral: tarefa em aberto pesa mais (2), concluÃƒÆ’Ã‚Â­da pesa menos (1)
+                                    # Carga geral: tarefa em aberto pesa mais (2), concluída pesa menos (1)
                                     if t.get("status") != "done":
                                         scores[aid] += 2
                                     else:
                                         scores[aid] += 1
                                         
-                                    # PuniÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o por repetiÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o da MESMA tarefa (justiÃƒÆ’Ã‚Â§a no rodÃƒÆ’Ã‚Â­zio)
+                                    # Punição por repetição da MESMA tarefa (justiça no rodízio)
                                     if t.get("title"):
                                         old_title_words = set(w.lower() for w in t["title"].split() if len(w) > 3)
                                         if new_title_words & old_title_words:
-                                            # Fez a mesma coisa recentemente? PuniÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o altÃƒÆ’Ã‚Â­ssima (+5)
+                                            # Fez a mesma coisa recentemente? Punição altíssima (+5)
                                             scores[aid] += 5
                                             
                         if scores:
@@ -355,9 +323,9 @@ async def _execute_intent(
                 except Exception:
                     pass
                     
-            resp_str = f"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹ Tarefa {code} criada!"
+            resp_str = f"📋 Tarefa {code} criada!"
             if a_username:
-                resp_str = f"ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹ Tarefa {code} criada e atribuÃƒÆ’Ã‚Â­da a @{a_username}!"
+                resp_str = f"📋 Tarefa {code} criada e atribuída a @{a_username}!"
             resp_str += f" (Prazo: {insert_data['due_date']})"
             
             return resp_str
@@ -369,21 +337,21 @@ async def _execute_intent(
             r = query.order("seq_id").execute()
 
             if not r.data:
-                return "ÃƒÂ°Ã…Â¸Ã…Â½Ã¢â‚¬Â° Nenhuma tarefa pendente!"
+                return "✨ Nenhuma tarefa pendente!"
 
             lines = []
-            emoji_map = {"backlog": "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹", "todo": "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…â€™", "in_progress": "ÃƒÂ¢Ã…Â¡Ã‚Â¡"}
+            emoji_map = {"backlog": "❄️", "todo": "🎯", "in_progress": "⏳"}
             for t in r.data:
                 code = f"#{str(t['seq_id']).zfill(4)}"
-                e = emoji_map.get(t["status"], "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢")
-                prazo = f" ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¦ {t['due_date']}" if t.get("due_date") else ""
-                lines.append(f"{e} `{code}` {t['title']}{prazo}")
+                e = emoji_map.get(t["status"], "•")
+                prazo = f" 📅 {t['due_date']}" if t.get("due_date") else ""
+                lines.append(f"🔹 `{code}` {t['title']}{prazo}")
             return "\n".join(lines)
 
         case "task_update":
             seq_id = params.get("seq_id")
             if not seq_id:
-                return "ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â Preciso do nÃƒÆ’Ã‚Âºmero da tarefa (ex: #0003)."
+                return "⚠️ Preciso do número da tarefa (ex: #0003)."
 
             update = {}
             if params.get("status"):
@@ -397,10 +365,10 @@ async def _execute_intent(
 
             if update:
                 sb.table("tasks").update(update).eq("seq_id", seq_id).execute()
-                return f"ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Tarefa #{str(seq_id).zfill(4)} atualizada!"
+                return f"✅ Tarefa #{str(seq_id).zfill(4)} atualizada!"
             return None
 
-        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ FINANÃƒÆ’Ã¢â‚¬Â¡AS ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+        # ── FINANÇAS ────────────────────────────────────────────────
         case "transaction_create":
             beneficiary_id = None
             if params.get("beneficiary_username"):
@@ -421,34 +389,34 @@ async def _execute_intent(
 
             amount_fmt = f"R$ {float(params['amount']):.2f}"
             tipo = "Coletivo" if tx_type == "collective" else "Individual"
-            return f"ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â° {tipo} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ {amount_fmt}"
+            return f"💰 {tipo} • {amount_fmt}"
 
         case "transaction_list":
             limit = params.get("limit", 10)
             r = sb.table("transactions").select("description, amount, type, transaction_date").order("transaction_date", desc=True).limit(limit).execute()
 
             if not r.data:
-                return "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â­ Nenhuma transaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o registrada."
+                return "📭 Nenhuma transação registrada."
 
             lines = []
             for t in r.data:
-                emoji = "ÃƒÂ°Ã…Â¸Ã‚ÂÃ‚Â " if t["type"] == "collective" else "ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ‚Â¤"
-                lines.append(f"{emoji} {t['description']} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â R$ {float(t['amount']):.2f}")
+                emoji = "🏠" if t["type"] == "collective" else "👤"
+                lines.append(f"{emoji} {t['description']} — R$ {float(t['amount']):.2f}")
             return "\n".join(lines)
 
         case "balance_check":
             r = sb.table("balance_summary").select("*").execute()
             if not r.data:
-                return "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â  Sem dados de rateio ainda."
+                return "📊 Sem dados de rateio ainda."
 
-            lines = ["ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â  *Rateio atual:*\n"]
+            lines = ["📊 *Rateio atual:*\n"]
             for b in r.data:
                 balance = float(b["balance"])
                 sinal = "+" if balance >= 0 else ""
                 lines.append(f"@{b['username']}: {sinal}R$ {balance:.2f}")
             return "\n".join(lines)
 
-        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ LISTA DE COMPRAS ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+        # ── LISTA DE COMPRAS ────────────────────────────────────────
         case "shopping_add":
             insert_data = {
                 "item_name": params["item_name"],
@@ -459,7 +427,7 @@ async def _execute_intent(
                 "status": "pending",
             }
             sb.table("shopping_list").insert(insert_data).execute()
-            return f"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ¢â‚¬â„¢ {params['quantity'] if params.get('quantity') else 1}x {params['item_name']} adicionado ÃƒÆ’Ã‚Â  lista ({insert_data['category']})!"
+            return f"🛒 {params['quantity'] if params.get('quantity') else 1}x {params['item_name']} adicionado à lista ({insert_data['category']})!"
             
         case "shopping_update":
             update_data = {}
@@ -472,12 +440,12 @@ async def _execute_intent(
         case "shopping_list":
             r = sb.table("shopping_list").select("item_name, quantity, category").eq("status", "pending").execute()
             if not r.data:
-                return "ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Lista vazia!"
+                return "✅ Lista vazia!"
 
             lines = []
             for item in r.data:
                 cat = f" _({item['category']})_" if item.get("category") else ""
-                lines.append(f"ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ {item['item_name']} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â {item['quantity']}{cat}")
+                lines.append(f"• {item['item_name']} — {item['quantity']}{cat}")
             return "\n".join(lines)
 
         case "shopping_done":
@@ -488,19 +456,19 @@ async def _execute_intent(
             }).ilike("item_name", f"%{item_name}%").eq("status", "pending").execute()
 
             if r.data:
-                return f"ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ *{r.data[0]['item_name']}* marcado como comprado!"
-            return f"ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â NÃƒÆ’Ã‚Â£o encontrei '{item_name}' na lista."
+                return f"✅ *{r.data[0]['item_name']}* marcado como comprado!"
+            return f"⚠️ Não encontrei '{item_name}' na lista."
 
-        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ CLIMA ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+        # ── CLIMA ───────────────────────────────────────────────────
         case "weather_check":
             from app.services.weather import get_weather
-            city = params.get("city", "SÃƒÆ’Ã‚Â£o Paulo")
+            city = params.get("city", "São Paulo")
             timeframe = params.get("timeframe", "hoje")
             return await get_weather(city, timeframe)
 
-        # ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ CONVERSA ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+        # ── CONVERSA ────────────────────────────────────────────────
         case "chat":
-            return None  # SÃƒÆ’Ã‚Â³ retorna o reply do Gemini
+            return None  # Só retorna o reply do Gemini
 
         case _:
             logger.warning("Intent desconhecida: %s", intent)
@@ -538,8 +506,8 @@ async def start_ai_worker():
 
 async def handle_ai_message(text: str, chat_id: int, media_bytes: bytes | None = None, media_mime: str | None = None) -> str:
     """
-    FunÃƒÂ§ÃƒÂ£o de entrada: envia Typing pro Telegram e enfileira.
-    Para manter a retrocompatibilidade do cÃƒÂ³digo antigo, retorna string vazia ou feedback inicial.
+    Função de entrada: envia Typing pro Telegram e enfileira.
+    Para manter a retrocompatibilidade do código antigo, retorna string vazia ou feedback inicial.
     """
     from app.services.telegram import send_chat_action
     
@@ -554,5 +522,5 @@ async def handle_ai_message(text: str, chat_id: int, media_bytes: bytes | None =
         "media_mime": media_mime
     })
     
-    return ""  # O worker enviarÃƒÂ¡ a resposta diretamente.
+    return ""  # O worker enviará a resposta diretamente.
 
