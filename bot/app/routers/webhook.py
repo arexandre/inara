@@ -15,8 +15,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 
 from app.services.fast_track import handle_fast_track
 from app.services.telegram import send_message
-
-logger = logging.getLogger("inara.webhook")
+from app.logger import logger
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 

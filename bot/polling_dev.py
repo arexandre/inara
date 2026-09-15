@@ -21,14 +21,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 load_dotenv()
 
+from app.logger import logger
 from app.services.fast_track import handle_fast_track
 from app.services.telegram import send_message
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("inara.polling")
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 API_BASE = f"https://api.telegram.org/bot{TOKEN}"

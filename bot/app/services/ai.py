@@ -18,27 +18,29 @@ from typing import Any
 import google.generativeai as genai
 from supabase import create_client, Client
 
-logger = logging.getLogger("inara.ai")
+from app.logger import logger
 
 # ---------------------------------------------------------------------------
-# Configuração do Gemini
+# Instanciação do Modelo
 # ---------------------------------------------------------------------------
-_model = None
-
-
 def _get_model():
-    global _model
-    if _model is None:
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        _model = genai.GenerativeModel(
-            model_name="gemini-3.8-flash",
-            system_instruction=SYSTEM_PROMPT,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
-                temperature=0.3,
-            ),
-        )
-    return _model
+    from datetime import datetime
+    from app.logger import BRT
+    agora = datetime.now(BRT)
+    dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+    dia_semana = dias[agora.weekday()]
+    
+    dynamic_sys_prompt = f"Data atual: {agora.strftime('%Y-%m-%d %H:%M:%S')} ({dia_semana}).\n{SYSTEM_PROMPT}"
+    
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    return genai.GenerativeModel(
+        model_name="gemini-3.8-flash",
+        system_instruction=dynamic_sys_prompt,
+        generation_config=genai.GenerationConfig(
+            response_mime_type="application/json",
+            temperature=0.3,
+        ),
+    )
 
 
 def _get_supabase() -> Client:
@@ -88,7 +90,7 @@ SEMPRE responda com um JSON válido no seguinte formato:
 
 | Intent | Params | Descrição |
 |--------|--------|-----------|
-| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Criar nova tarefa. Se o usuário não especificar o prazo, estime a data baseando-se no peso/urgência da atividade (ex: louça=hoje, pintar parede=15 dias). |
+| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Criar nova tarefa. Se o usuário falar "até o fim de semana" ou "amanhã", calcule a data exata. Se não especificar prazo, OBRIGATORIAMENTE aplique um peso semântico baseando-se na urgência (ex: louça = data de hoje, pintar parede = hoje + 7 dias). |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
 | `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
@@ -181,9 +183,12 @@ async def handle_ai_message(
             logger.warning("Falha ao registrar log de API: %s", e)
 
         # Parse do JSON
-        result = json.loads(raw)
+        import re
+        clean_raw = re.sub(r"^```(?:json)?\n?", "", raw.strip(), flags=re.IGNORECASE)
+        clean_raw = re.sub(r"\n?```$", "", clean_raw.strip(), flags=re.IGNORECASE).strip()
         
-        # Pode ser um único dicionário ou uma lista de ações
+        result = json.loads(clean_raw)
+        
         actions = result if isinstance(result, list) else [result]
         
         final_replies = []
@@ -251,25 +256,45 @@ async def _execute_intent(
                 if a.data:
                     assignee_id = a.data["id"]
             else:
-                # Lógica Round-Robin Real: pega o morador com menos tarefas em aberto
+                # Lógica Round-Robin Real Justa: avalia carga histórica + similaridade
                 try:
-                    # 1. Pega todos os perfis
                     rr_res = sb.table("profiles").select("id").execute()
                     if rr_res.data:
                         profiles = [p["id"] for p in rr_res.data]
-                        # 2. Conta quantas tarefas abertas cada um tem
-                        t_res = sb.table("tasks").select("assignee_id").neq("status", "done").execute()
-                        counts = {p: 0 for p in profiles}
+                        
+                        from datetime import datetime, timedelta
+                        from app.logger import BRT
+                        last_30d = (datetime.now(BRT) - timedelta(days=30)).isoformat()
+                        
+                        t_res = sb.table("tasks").select("assignee_id, title, status").gte("created_at", last_30d).execute()
+                        
+                        # Score: quanto MENOR, maior a chance de receber a tarefa.
+                        scores = {p: 0 for p in profiles}
+                        
+                        # Extrair palavras chaves do título novo (maior q 3 letras)
+                        new_title_words = set(w.lower() for w in params["title"].split() if len(w) > 3)
+                        
                         if t_res.data:
                             for t in t_res.data:
                                 aid = t.get("assignee_id")
-                                if aid in counts:
-                                    counts[aid] += 1
-                        # 3. Escolhe quem tem menos tarefas
-                        if counts:
-                            assignee_id = min(counts, key=counts.get)
+                                if aid in scores:
+                                    # Carga geral: tarefa em aberto pesa mais (2), concluída pesa menos (1)
+                                    if t.get("status") != "done":
+                                        scores[aid] += 2
+                                    else:
+                                        scores[aid] += 1
+                                        
+                                    # Punição por repetição da MESMA tarefa (justiça no rodízio)
+                                    if t.get("title"):
+                                        old_title_words = set(w.lower() for w in t["title"].split() if len(w) > 3)
+                                        if new_title_words & old_title_words:
+                                            # Fez a mesma coisa recentemente? Punição altíssima (+5)
+                                            scores[aid] += 5
+                                            
+                        if scores:
+                            assignee_id = min(scores, key=scores.get)
                 except Exception as e:
-                    logger.error("Erro no Round-Robin: %s", e)
+                    logger.error("Erro no Round-Robin Justo: %s", e)
                     import random
                     assignee_id = random.choice(rr_res.data)["id"] if rr_res and rr_res.data else None
 

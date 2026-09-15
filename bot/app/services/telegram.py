@@ -7,7 +7,7 @@ import logging
 import os
 import httpx
 
-logger = logging.getLogger("inara.telegram")
+from app.logger import logger
 
 def _token() -> str:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")

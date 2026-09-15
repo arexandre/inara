@@ -7,7 +7,7 @@ import os
 
 from supabase import AsyncClient, acreate_client
 
-logger = logging.getLogger("inara.fast_track")
+from app.logger import logger
 
 _supabase: AsyncClient | None = None
 
