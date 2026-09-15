@@ -298,7 +298,7 @@ async def _execute_intent(
                     assignee_id = random.choice(rr_res.data)["id"] if rr_res and rr_res.data else None
 
             insert_data = {
-                "title": params["title"],
+                "title": params.get("title", "Nova Tarefa"),
                 "description": params.get("description"),
                 "assignee_id": assignee_id,
                 "created_by": sender["id"],

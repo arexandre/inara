@@ -19,8 +19,8 @@ async def get_weather(city: str, timeframe: str) -> str:
         import logging
         logging.getLogger("inara.weather").warning(f"Falha ao logar uso de API Clima: {e}")
 
-    if city == "São Paulo" or not city:
-        city = "Araguari, MG"
+    if not city or "Araguari" in city:
+        city = "Araguari,BR"
         
     # Padronizar timeframe
     timeframe = timeframe.lower().strip()
@@ -68,7 +68,7 @@ async def get_weather(city: str, timeframe: str) -> str:
             chuva_msg = f" 🌧️ (Chance de chuva: {pop:.0f}%)" if pop > 15 else ""
             dia_str = "Amanhã" if timeframe in ["amanha", "amanhã"] else "Hoje"
             
-            return f"🌤️ *{dia_str} em {city}*:\n{desc.capitalize()} • Média de {temp:.1f}°C (Mín: {temp_min:.1f}°C / Máx: {temp_max:.1f}°C){chuva_msg}"
+            return f"🌤️ *{dia_str} em {city}*:\n{desc.capitalize()} — Média de {temp:.1f}°C (Mín: {temp_min:.1f}°C / Máx: {temp_max:.1f}°C){chuva_msg}"
 
     except Exception as e:
         import logging
