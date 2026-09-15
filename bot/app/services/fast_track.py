@@ -1,11 +1,5 @@
 """
 Fast Track — Handlers locais de comandos Telegram.
-
-Cada handler recebe:
-  args     : texto após o comando (ex: "/pix João 50" → args = "João 50")
-  chat_id  : ID do chat Telegram (para futuras consultas ao Supabase)
-
-Retorna uma string de resposta formatada com Markdown do Telegram.
 """
 
 import logging
@@ -15,11 +9,7 @@ from supabase import AsyncClient, acreate_client
 
 logger = logging.getLogger("inara.fast_track")
 
-# ---------------------------------------------------------------------------
-# Supabase client factory (usa service_role para acesso irrestrito via bot)
-# ---------------------------------------------------------------------------
 _supabase: AsyncClient | None = None
-
 
 async def get_supabase() -> AsyncClient:
     global _supabase
@@ -30,9 +20,15 @@ async def get_supabase() -> AsyncClient:
     return _supabase
 
 
-# ---------------------------------------------------------------------------
-# Dispatcher
-# ---------------------------------------------------------------------------
+async def get_sender(chat_id: int):
+    sb = await get_supabase()
+    try:
+        r = await sb.table("profiles").select("id, username").eq("telegram_id", chat_id).single().execute()
+        return r.data
+    except Exception:
+        return None
+
+
 async def handle_fast_track(handler_name: str, args: str, chat_id: int) -> str:
     handlers = {
         "_cmd_start":   _cmd_start,
@@ -44,27 +40,36 @@ async def handle_fast_track(handler_name: str, args: str, chat_id: int) -> str:
     handler = handlers.get(handler_name)
     if not handler:
         return "❓ Comando não reconhecido."
+        
+    # Verificar autorização (Zero-Trust) para comandos que não sejam ajuda ou start
+    if handler_name not in ["_cmd_start", "_cmd_ajuda"]:
+        sender = await get_sender(chat_id)
+        if not sender:
+            return "❌ Seu Telegram não está vinculado a nenhum morador.\nAcesse o app Inara e vincule seu perfil."
+
     try:
+        if handler_name == "_cmd_start":
+            return await _cmd_start(args, chat_id)
         return await handler(args, chat_id)
     except Exception as exc:
         logger.exception("Erro no handler %s: %s", handler_name, exc)
         return "⚠️ Ocorreu um erro. Tente novamente em instantes."
 
 
-# ---------------------------------------------------------------------------
-# /start
-# ---------------------------------------------------------------------------
 async def _cmd_start(args: str, chat_id: int) -> str:
+    sender = await get_sender(chat_id)
+    if not sender:
+        return (
+            "🏠 *Olá! Sou a Inara*, o ERP da sua casa.\n\n"
+            "❌ Vi aqui que o seu Telegram não está vinculado a nenhum morador.\n"
+            "Crie uma conta no app Inara e vincule este número para começar!"
+        )
     return (
-        "🏠 *Olá! Sou a Inara*, o ERP da sua casa.\n\n"
+        f"🏠 *Olá, {sender['username']}! Sou a Inara*, o ERP da sua casa.\n\n"
         "Estou aqui para ajudar com tarefas, finanças e lista de compras.\n\n"
         "Use /ajuda para ver tudo que posso fazer!"
     )
 
-
-# ---------------------------------------------------------------------------
-# /ajuda | /help
-# ---------------------------------------------------------------------------
 async def _cmd_ajuda(args: str, chat_id: int) -> str:
     return (
         "📋 *Comandos disponíveis:*\n\n"
@@ -74,121 +79,58 @@ async def _cmd_ajuda(args: str, chat_id: int) -> str:
         "_Ou simplesmente me mande uma mensagem e eu entendo! 🤖_"
     )
 
-
-# ---------------------------------------------------------------------------
-# /lista — Lista de compras pendente
-# ---------------------------------------------------------------------------
 async def _cmd_lista(args: str, chat_id: int) -> str:
     sb = await get_supabase()
     response = await sb.table("shopping_list").select("item_name, quantity, category").eq("status", "pending").execute()
-
     items = response.data
     if not items:
         return "✅ A lista de compras está vazia! Boa notícia 🎉"
-
     lines = ["🛒 *Lista de compras:*\n"]
     for item in items:
         qty = item.get("quantity", "1")
         cat = f" _({item['category']})_" if item.get("category") else ""
         lines.append(f"• {item['item_name']} — {qty}{cat}")
-
     lines.append(f"\n_{len(items)} item(ns) pendente(s)_")
     return "\n".join(lines)
 
-
-# ---------------------------------------------------------------------------
-# /pix [beneficiário] [valor] — Registrar pagamento
-# ---------------------------------------------------------------------------
 async def _cmd_pix(args: str, chat_id: int) -> str:
-    """
-    Uso: /pix João 50.00
-    Registra uma transação individual do tipo Pix.
-    """
-    parts = args.strip().split()
+    parts = args.split()
     if len(parts) < 2:
-        return (
-            "⚠️ Formato incorreto.\n"
-            "Use: `/pix [nome] [valor]`\n"
-            "Exemplo: `/pix João 50.00`"
-        )
-
-    beneficiary_name = parts[0]
+        return "⚠️ Uso correto: `/pix [nome] [valor]`\nEx: `/pix joao 50`"
+    
+    beneficiary_label = parts[0]
     try:
         amount = float(parts[1].replace(",", "."))
     except ValueError:
-        return "⚠️ Valor inválido. Use números, ex: `50.00` ou `50,00`."
-
-    # Buscar o perfil do remetente pelo telegram_id
+        return "⚠️ O valor deve ser um número válido (ex: 50.50)."
+        
+    sender = await get_sender(chat_id)
     sb = await get_supabase()
-    sender_resp = await sb.table("profiles").select("id, username").eq("telegram_id", chat_id).single().execute()
+    
+    b_res = await sb.table("profiles").select("id, username").ilike("username", beneficiary_label).execute()
+    b_id = b_res.data[0]["id"] if b_res.data else None
 
-    if not sender_resp.data:
-        return (
-            "❌ Seu Telegram não está vinculado a nenhum morador.\n"
-            "Acesse o app Inara e vincule seu perfil primeiro."
-        )
-
-    sender = sender_resp.data
-
-    # Buscar beneficiário pelo username (case-insensitive)
-    beneficiary_resp = (
-        await sb.table("profiles")
-        .select("id, username")
-        .ilike("username", beneficiary_name)
-        .single()
-        .execute()
-    )
-
-    beneficiary_id = beneficiary_resp.data["id"] if beneficiary_resp.data else None
-    beneficiary_label = beneficiary_resp.data["username"] if beneficiary_resp.data else beneficiary_name
-
-    # Inserir transação
     await sb.table("transactions").insert({
         "description": f"Pix para {beneficiary_label}",
         "amount": amount,
         "type": "individual",
         "paid_by": sender["id"],
-        "beneficiary_id": beneficiary_id,
-        "category": "pix",
+        "beneficiary_id": b_id,
+        "category": "transferência"
     }).execute()
+    return f"✅ *Pix registrado!*\n👤 De: @{sender['username']}\n👥 Para: @{beneficiary_label}\n💰 Valor: R$ {amount:.2f}"
 
-    return (
-        f"✅ *Pix registrado!*\n"
-        f"👤 De: @{sender['username']}\n"
-        f"👥 Para: @{beneficiary_label}\n"
-        f"💰 Valor: R$ {amount:.2f}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# /tarefas — Listar tarefas em aberto
-# ---------------------------------------------------------------------------
 async def _cmd_tarefas(args: str, chat_id: int) -> str:
     sb = await get_supabase()
-    response = (
-        await sb.table("tasks")
-        .select("seq_id, title, status, assignee:profiles!tasks_assignee_id_fkey(username)")
-        .neq("status", "done")
-        .order("seq_id")
-        .execute()
-    )
-
+    response = await sb.table("tasks").select("seq_id, title, status, profiles(username)").neq("status", "done").order("seq_id").execute()
     tasks = response.data
     if not tasks:
-        return "🎉 Nenhuma tarefa pendente! Dia livre!"
-
-    status_emoji = {
-        "backlog": "📋",
-        "todo": "📌",
-        "in_progress": "⚡",
-    }
-
-    lines = ["✅ *Tarefas em aberto:*\n"]
-    for task in tasks:
-        code = f"#{str(task['seq_id']).zfill(4)}"
-        emoji = status_emoji.get(task["status"], "•")
-        assignee = task.get("assignee")
-        owner = f" → @{assignee['username']}" if assignee else ""
-        lines.append(f"{emoji} `{code}` {task['title']}{owner}")
-
+        return "🎉 Nenhuma tarefa pendente!"
+    lines = ["📋 *Tarefas em aberto:*\n"]
+    emoji_map = {"backlog": "📋", "todo": "📌", "in_progress": "⚡"}
+    for t in tasks:
+        code = f"#{str(t['seq_id']).zfill(4)}"
+        e = emoji_map.get(t["status"], "•")
+        assignee = f" (@{t['profiles']['username']})" if t.get("profiles") else ""
+        lines.append(f"{e} `{code}` {t['title']}{assignee}")
     return "\n".join(lines)
