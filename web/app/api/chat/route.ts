@@ -6,13 +6,14 @@ const SYSTEM_PROMPT = `
 Você é a Inara, a síndica virtual (assistente de casa inteligente).
 Responda SEMPRE em um bloco JSON com este formato estrito:
 {
-  "intent": "chat" | "task_create" | "shopping_add" | "event_create",
+  "intent": "chat" | "task_create" | "task_delete" | "shopping_add" | "event_create",
   "reply": "O que você vai dizer ao usuário (Seja amigável e direta)",
   "params": { ... }
 }
 
-Para "task_create", envie: { "title": "nome da tarefa", "weight": 1 a 5, "due_date": "YYYY-MM-DD" } (Trabalho/Esforço).
-Para "event_create", envie: { "title": "nome do evento", "event_date": "YYYY-MM-DD" } (Compromissos, festas, lazer).
+Para "task_create", envie: { "title": "nome da tarefa", "weight": 1 a 5, "due_date": "YYYY-MM-DD" }
+Para "task_delete", envie: { "seq_id": 10 } (Apenas o número numérico).
+Para "event_create", envie: { "title": "nome do evento", "event_date": "YYYY-MM-DD" }
 Para "shopping_add", envie: { "item_name": "nome do item" }
 Para "chat", params vazio {}.
 `;
@@ -26,6 +27,19 @@ export async function POST(req: Request) {
     const body = await req.json();
     const userMessage = body.message;
 
+    // Buscar histórico para contexto
+    const { data: hist } = await supabase
+      .from("chat_history")
+      .select("message, is_bot")
+      .eq("profile_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(6);
+      
+    let chatContext = "";
+    if (hist && hist.length > 0) {
+      chatContext = "\nHistórico recente:\n" + hist.reverse().map(h => `${h.is_bot ? 'Inara' : 'Usuário'}: ${h.message}`).join("\n");
+    }
+
     await supabase.from("chat_history").insert({
       profile_id: user.id,
       message: userMessage,
@@ -34,12 +48,11 @@ export async function POST(req: Request) {
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
     
-    // Injetar a data atual correta no prompt do sistema
     const hojeStr = new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" });
     const hojeObj = new Date(hojeStr);
     const tzDateStr = `${hojeObj.getFullYear()}-${String(hojeObj.getMonth()+1).padStart(2,'0')}-${String(hojeObj.getDate()).padStart(2,'0')}`;
 
-    const promptWithDate = SYSTEM_PROMPT + `\nHOJE É: ${tzDateStr}. Calcule prazos baseado nisso.`;
+    const promptWithDate = SYSTEM_PROMPT + `\nHOJE É: ${tzDateStr}. Calcule prazos baseado nisso.${chatContext}`;
     
     const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash-lite", systemInstruction: promptWithDate });
     
@@ -61,6 +74,9 @@ export async function POST(req: Request) {
         due_date: parsed.params.due_date || null,
         created_by: user.id
       });
+    } else if (parsed.intent === "task_delete" && parsed.params?.seq_id) {
+      let num = String(parsed.params.seq_id).replace('#', '');
+      await supabase.from("tasks").delete().eq("seq_id", parseInt(num));
     } else if (parsed.intent === "event_create" && parsed.params?.title) {
       await supabase.from("events").insert({
         title: parsed.params.title,

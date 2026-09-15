@@ -71,6 +71,7 @@ Você responde sempre de forma amigável, mas não gosta de enrolação.
 | `event_create` | `title`, `event_date` (YYYY-MM-DD), `event_time?` (HH:MM), `is_all_day?` | Criar Evento/Compromisso. Ex: "sÃ¡bado tem churrasco", "aniversÃ¡rio da vovÃ³", "mÃ©dico Ã s 14h". |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
 | `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
+| `task_delete` | `seq_id` | Deletar/Apagar tarefa |
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
 | `transaction_list` | `limit?` | Listar transações recentes |
 | `balance_check` | - | Ver rateio/saldo |
@@ -124,13 +125,26 @@ async def _process_ai_message(
     from app.logger import BRT
     hoje_str = datetime.now(BRT).strftime("%Y-%m-%d")
     
+# Buscar histórico recente de conversa (para memória contextual)
+    chat_hist = ""
+    try:
+        hist_res = sb.table("chat_history").select("message, is_bot").eq("profile_id", sender["id"]).order("created_at", desc=True).limit(6).execute()
+        if hist_res.data:
+            hist_lines = []
+            for h in reversed(hist_res.data):
+                speaker = "Inara" if h["is_bot"] else sender["username"]
+                hist_lines.append(f"{speaker}: {h['message']}")
+            chat_hist = "\nHistórico Recente:\n" + "\n".join(hist_lines)
+    except Exception:
+        pass
+
     # Buscar lista de compras ativa para Deduplicação
     shop_res = sb.table("shopping_list").select("item_name, quantity").eq("status", "pending").execute()
     shop_items = [f"- {i['item_name']} (Qtd: {i['quantity'] or 1})" for i in shop_res.data] if shop_res.data else ["Nenhum"]
     shop_context = "\nLista de Compras Atual:\n" + "\n".join(shop_items)
     
-    context_text = f"[Data atual: {hoje_str}] [Remetente: @{sender['username']} (id: {sender['id']})]{shop_context}\n\nMensagem: {text}"
-    
+    context_text = f"[Data atual: {hoje_str}] [Remetente: @{sender['username']} (id: {sender['id']})]{shop_context}{chat_hist}\n\nMensagem atual do usuário: {text}"
+
     contents = [context_text]
     if media_bytes and media_mime:
         contents.append({
@@ -365,6 +379,16 @@ async def _execute_intent(
                 prazo = f" 📅 {t['due_date']}" if t.get("due_date") else ""
                 lines.append(f"🔹 `{code}` {t['title']}{prazo}")
             return "\n".join(lines)
+
+        case "task_delete":
+            seq_id = params.get("seq_id")
+            if not seq_id:
+                return "⚠️ Preciso do número da tarefa (ex: 0010)."
+            # Lidar com IDs como #0010 ou strings
+            if isinstance(seq_id, str):
+                seq_id = seq_id.replace('#', '')
+            sb.table("tasks").delete().eq("seq_id", int(seq_id)).execute()
+            return f"✅ Tarefa #{str(seq_id).zfill(4)} apagada com sucesso!"
 
         case "task_update":
             seq_id = params.get("seq_id")
