@@ -97,12 +97,17 @@ SEMPRE responda com um JSON válido no seguinte formato:
 | `shopping_add` | `item_name`, `quantity?`, `category?`, `estimated_price?` | Adicionar item à lista |
 | `shopping_list` | — | Ver lista de compras |
 | `shopping_done` | `item_name` | Marcar item como comprado |
-| `weather_check` | `city?` (default: São Paulo), `timeframe?` (hoje ou amanhã) | Ver previsão do tempo |
+| `weather_check` | `city?` (default: Araguari), `timeframe?` (hoje ou amanhã) | Ver previsão do tempo |
 | `chat` | — | Quando não é um comando, apenas conversa casual |
+
+### Lidar com Mídias (Fotos e Áudio):
+- **Áudio**: O usuário enviará áudios curtos. O conteúdo transcrito está na sua entrada. Processe normalmente extraindo as intenções (criar tarefa, registrar despesa, etc.).
+- **Fotos (Notas Fiscais)**: Se o usuário enviar uma foto de nota fiscal de mercado ou padaria, extraia o **valor total** e registre como `transaction_create` (type = collective, category = alimentação). Se houver itens descritos que importam, mencione no campo `reply`.
 
 ### Exemplos de Interpretação:
 - "Comprei 3kg de frango por 45 reais" → transaction_create (collective, alimentação)
 - "Vai chover amanhã?" → weather_check (timeframe=amanhã)
+- [Imagem de cupom fiscal de R$ 120,50 no Carrefour] → transaction_create (amount=120.50, description="Compra no Carrefour", type="collective")
 - "Adiciona papel higiênico na lista" → shopping_add
 - "Fiz um pix de 50 pro João" → transaction_create (individual, beneficiary=João)
 - "Cria uma tarefa pra limpar o banheiro" → task_create
@@ -118,7 +123,12 @@ O campo "reply" DEVE ser uma mensagem em português, simpática e breve.
 # ---------------------------------------------------------------------------
 # Handler principal — chamado pelo webhook
 # ---------------------------------------------------------------------------
-async def handle_ai_message(text: str, chat_id: int) -> str:
+async def handle_ai_message(
+    text: str, 
+    chat_id: int, 
+    media_bytes: bytes | None = None, 
+    media_mime: str | None = None
+) -> str:
     """
     Processa uma mensagem livre usando o Gemini e executa a ação no Supabase.
     Retorna a mensagem formatada para enviar ao Telegram.
@@ -140,11 +150,18 @@ async def handle_ai_message(text: str, chat_id: int) -> str:
         )
 
     # Contextualizar a mensagem para o Gemini
-    context = f"[Remetente: @{sender['username']} (id: {sender['id']})] {text}"
+    context_text = f"[Remetente: @{sender['username']} (id: {sender['id']})] {text}"
+    
+    contents = [context_text]
+    if media_bytes and media_mime:
+        contents.append({
+            "mime_type": media_mime,
+            "data": media_bytes
+        })
 
     try:
         model = _get_model()
-        response = model.generate_content(context)
+        response = model.generate_content(contents)
         raw = response.text.strip()
 
         # Parse do JSON
@@ -201,9 +218,16 @@ async def _execute_intent(
         case "task_create":
             assignee_id = None
             if params.get("assignee_username"):
-                a = sb.table("profiles").select("id").ilike("username", params["assignee_username"]).single().execute()
+                a = sb.table("profiles").select("id").ilike("username", params.get("assignee_username")).single().execute()
                 if a.data:
                     assignee_id = a.data["id"]
+            else:
+                # Lógica Round-Robin simples (pega o morador com menos tarefas em aberto)
+                rr_res = sb.table("profiles").select("id").execute()
+                if rr_res.data:
+                    # Em produção ideal faremos um JOIN count, aqui pegamos aleatório ou primeiro para MVP
+                    import random
+                    assignee_id = random.choice(rr_res.data)["id"]
 
             insert_data = {
                 "title": params["title"],
@@ -212,15 +236,34 @@ async def _execute_intent(
                 "created_by": sender["id"],
                 "status": "todo",
             }
+            
+            # Prazos (Default = hoje + 24h)
             if params.get("due_date"):
                 insert_data["due_date"] = params["due_date"]
+            else:
+                from datetime import date, timedelta
+                insert_data["due_date"] = str(date.today() + timedelta(days=1))
                 
             r = sb.table("tasks").insert(insert_data).execute()
 
             task = r.data[0]
             code = f"#{str(task['seq_id']).zfill(4)}"
-            prazo_msg = f" (Prazo: {params['due_date']})" if params.get("due_date") else ""
-            return f"📋 Tarefa {code} criada{prazo_msg}!"
+            
+            # Buscar username do assignee selecionado (se Round Robin)
+            a_username = params.get("assignee_username")
+            if not a_username and assignee_id:
+                try:
+                    u_req = sb.table("profiles").select("username").eq("id", assignee_id).single().execute()
+                    a_username = u_req.data["username"]
+                except Exception:
+                    pass
+                    
+            resp_str = f"📋 Tarefa {code} criada!"
+            if a_username:
+                resp_str = f"📋 Tarefa {code} criada e atribuída a @{a_username}!"
+            resp_str += f" (Prazo: {insert_data['due_date']})"
+            
+            return resp_str
 
         case "task_list":
             query = sb.table("tasks").select("seq_id, title, status, assignee_id, due_date").neq("status", "done")

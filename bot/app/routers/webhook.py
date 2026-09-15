@@ -85,20 +85,36 @@ async def telegram_webhook(
 
     logger.debug("Update recebido: %s", update.get("update_id"))
 
-    # ── 3. Extrair mensagem ───────────────────────────────────────────────────
+    # ── 3. Extrair mensagem e Mídia ───────────────────────────────────────────
     message = update.get("message") or update.get("edited_message")
     if not message:
-        # Outros tipos de update (callback_query, etc.) — ignorar por ora
         return {"status": "ignored"}
 
     chat_id: int = message["chat"]["id"]
     text: str = message.get("text", "").strip()
+    
+    media_bytes = None
+    media_mime = None
+    
+    if "voice" in message:
+        from app.services.telegram import download_file
+        file_id = message["voice"]["file_id"]
+        media_mime = message["voice"].get("mime_type", "audio/ogg")
+        media_bytes = await download_file(file_id)
+        if not text:
+            text = "[Mensagem de Voz]"
+            
+    elif "photo" in message:
+        from app.services.telegram import download_file
+        file_id = message["photo"][-1]["file_id"]
+        media_mime = "image/jpeg"
+        media_bytes = await download_file(file_id)
+        text = message.get("caption", "").strip() or "[Imagem enviada]"
 
-    if not text:
+    if not text and not media_bytes:
         return {"status": "ignored"}
 
     # ── 4. Fast Track — detecção de comando ──────────────────────────────────
-    # Suporta comandos com @botname: /lista@InaraBot → /lista
     base_command = text.split("@")[0].split()[0].lower()
 
     if base_command in FAST_TRACK_COMMANDS:
@@ -110,10 +126,10 @@ async def telegram_webhook(
         return {"status": "fast_track", "command": base_command}
 
     # ── 5. LLM (Gemini) — processamento de linguagem natural ────────────────
-    logger.info("LLM route: chat_id=%s, text=%r", chat_id, text[:60])
+    logger.info("LLM route: chat_id=%s, text=%r, media=%s", chat_id, text[:60], media_mime)
     try:
         from app.services.ai import handle_ai_message
-        reply = await handle_ai_message(text, chat_id)
+        reply = await handle_ai_message(text, chat_id, media_bytes, media_mime)
     except Exception as exc:
         logger.exception("Erro no handler de IA: %s", exc)
         reply = "⚠️ Ocorreu um erro ao processar sua mensagem. Tente novamente."

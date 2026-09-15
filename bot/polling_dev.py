@@ -47,8 +47,28 @@ async def process_message(message: dict) -> None:
     """Processa uma mensagem recebida via polling."""
     chat_id = message["chat"]["id"]
     text = message.get("text", "").strip()
+    
+    # Suporte a mídia (voz / imagem)
+    media_bytes = None
+    media_mime = None
+    
+    if "voice" in message:
+        from app.services.telegram import download_file
+        file_id = message["voice"]["file_id"]
+        media_mime = message["voice"].get("mime_type", "audio/ogg")
+        media_bytes = await download_file(file_id)
+        if not text:
+            text = "[Mensagem de Voz]"
+            
+    elif "photo" in message:
+        from app.services.telegram import download_file
+        # photos é uma lista (vários tamanhos), pega o maior
+        file_id = message["photo"][-1]["file_id"]
+        media_mime = "image/jpeg"
+        media_bytes = await download_file(file_id)
+        text = message.get("caption", "").strip() or "[Imagem enviada]"
 
-    if not text:
+    if not text and not media_bytes:
         return
 
     # Fast Track
@@ -62,10 +82,10 @@ async def process_message(message: dict) -> None:
         return
 
     # LLM (Gemini)
-    logger.info("LLM route: chat_id=%s, text=%r", chat_id, text[:60])
+    logger.info("LLM route: chat_id=%s, text=%r, media=%s", chat_id, text[:60], media_mime)
     try:
         from app.services.ai import handle_ai_message
-        reply = await handle_ai_message(text, chat_id)
+        reply = await handle_ai_message(text, chat_id, media_bytes, media_mime)
     except Exception as exc:
         logger.exception("Erro no handler de IA: %s", exc)
         reply = "Ocorreu um erro ao processar sua mensagem. Tente novamente."

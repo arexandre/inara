@@ -10,6 +10,9 @@ async def get_weather(city: str, timeframe: str) -> str:
     if not api_key:
         return "⚠️ API do clima não configurada."
     
+    if city == "São Paulo" or not city:
+        city = "Araguari, MG"
+        
     # Padronizar timeframe
     timeframe = timeframe.lower().strip()
     
