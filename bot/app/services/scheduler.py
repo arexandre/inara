@@ -1,5 +1,6 @@
 import os
 import asyncio
+import random
 from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import google.generativeai as genai
@@ -13,13 +14,11 @@ scheduler = AsyncIOScheduler(timezone=BRT)
 
 async def broadcast_to_residents(message: str):
     sb = await get_supabase()
-    # Pega todos os moradores cadastrados
     r = await sb.table("profiles").select("telegram_id, id").execute()
     if r.data:
         for profile in r.data:
             if profile.get("telegram_id"):
                 await send_message(profile["telegram_id"], message)
-                # Opcional: salvar no chat_history como bot
                 try:
                     await sb.table("chat_history").insert({
                         "profile_id": profile["id"],
@@ -30,43 +29,55 @@ async def broadcast_to_residents(message: str):
                     pass
 
 async def ping_de_ociosidade():
-    """Quebra-gelo: roda a cada 30 mins para testes (ou 3h prod)."""
     try:
         sb = await get_supabase()
         
-        # Pega a última mensagem geral no histórico
+        # Buscar config de tempo
+        idle_time_min = 120
+        try:
+            cfg = await sb.table("system_settings").select("idle_time_min").eq("id", 1).single().execute()
+            if cfg.data and "idle_time_min" in cfg.data:
+                idle_time_min = cfg.data["idle_time_min"]
+        except Exception:
+            pass
+
         r = await sb.table("chat_history").select("created_at, is_bot").order("created_at", desc=True).limit(1).execute()
         
         if not r.data:
-            return # Sem histórico
+            return
             
         last_msg = r.data[0]
-        # Se a última mensagem já foi do bot (seja resposta ou ping anterior), não spamma.
         if last_msg["is_bot"]:
             return
             
-        # Calcula diff
         last_time = datetime.fromisoformat(last_msg["created_at"])
         now = datetime.now(BRT)
         
-        # Como o created_at do Supabase vem em UTC, precisamos garantir a conversão
         diff_minutes = (now.timestamp() - last_time.timestamp()) / 60
         
-        # Threshold: 30 minutos
-        if diff_minutes > 30:
-            logger.info("Ociosidade detectada (>30m). Gerando Ping de Quebra-Gelo...")
+        if diff_minutes > idle_time_min:
+            logger.info(f"Ociosidade detectada (>{idle_time_min}m). Gerando Ping...")
             
             genai.configure(api_key=os.environ["GEMINI_API_KEY"])
             model = genai.GenerativeModel("gemini-3.5-flash-lite")
             
+            estilos = [
+                "uma curiosidade r\u00e1pida e in\u00fatil sobre casa ou tecnologia",
+                "um coment\u00e1rio levemente sarc\u00e1stico sobre algu\u00e9m ter esquecido de lavar lou\u00e7a (brincadeira)",
+                "um elogio exagerado ao \u00faltimo morador que falou",
+                "um fato aleat\u00f3rio sobre o universo",
+                "apenas um 'T\u00f4 aqui viu?' de forma acolhedora"
+            ]
+            estilo = random.choice(estilos)
+            
             prompt = (
-                f"Data atual: {now.strftime('%d/%m/%Y')}."
-                "A casa está muito quieta. Gere uma mensagem curta (max 2 frases) de 'curiosidade do dia' "
-                "ou um pensamento sarcástico/acolhedor de síndica virtual para puxar assunto com os moradores. "
-                "Não faça perguntas que exijam comando, apenas um pensamento solto."
+                f"Data atual: {now.strftime('%d/%m/%Y %H:%M')}.\n"
+                f"A casa est\u00e1 quieta demais. Escreva uma mensagem curta (max 2 frases) para o grupo no estilo: {estilo}. "
+                "Seja a Inara (acolhedora, eficiente, mas meio ir\u00f4nica). N\u00e3o exija comandos."
             )
             
-            response = await asyncio.to_thread(model.generate_content, prompt)
+            # Executando gerador async com timeout
+            response = await model.generate_content_async(prompt, request_options={"timeout": 15.0})
             reply = response.text.strip()
             
             await broadcast_to_residents(reply)
@@ -75,15 +86,12 @@ async def ping_de_ociosidade():
         logger.error("Erro no Ping de Ociosidade: %s", e)
 
 async def resumo_matinal():
-    """Bom dia da Síndica: roda às 08:30 da manhã."""
     try:
         logger.info("Executando Resumo Matinal...")
         now = datetime.now(BRT)
         
-        # 1. Clima
-        clima = await get_weather("Araguari, MG", "hoje")
+        clima = await get_weather("Araguari,BR", "hoje")
         
-        # 2. Tarefas
         sb = await get_supabase()
         hoje_iso = now.strftime("%Y-%m-%d")
         t_res = await sb.table("tasks").select("title, due_date, status, profiles!tasks_assignee_id_fkey(username)").neq("status", "done").execute()
@@ -98,18 +106,26 @@ async def resumo_matinal():
             if urgentes:
                 tarefas_text = "Tarefas vencendo/vencidas:\n" + "\n".join(urgentes)
         
-        # 3. LLM Formatter
         genai.configure(api_key=os.environ["GEMINI_API_KEY"])
         model = genai.GenerativeModel("gemini-3.5-flash-lite")
         
+        estilos = [
+            "Um bom dia formal e po\u00e9tico",
+            "Um bom dia sarc\u00e1stico e de 'acorda pra cuspir'",
+            "Um bom dia hiperativo e otimista",
+            "Um bom dia zen e tranquilo"
+        ]
+        estilo = random.choice(estilos)
+        
         prompt = (
-            f"Hoje é {now.strftime('%d/%m/%Y')}. Escreva um 'Bom dia' acolhedor e levemente irônico para os moradores.\n"
-            f"Inclua este clima: {clima}\n"
-            f"Inclua este alerta de tarefas: {tarefas_text}\n"
-            "Seja sucinta e direta, parecendo uma assistente de casa inteligente."
+            f"Hoje \u00e9 {now.strftime('%d/%m/%Y')}. Escreva a mensagem de Bom Dia matinal da Inara para os moradores da casa.\n"
+            f"Adote este tom: {estilo}.\n"
+            f"Clima: {clima}\n"
+            f"Alertas: {tarefas_text}\n"
+            "Mantenha curto, elegante, sem parecer que est\u00e1 lendo uma tabela."
         )
         
-        response = await asyncio.to_thread(model.generate_content, prompt)
+        response = await model.generate_content_async(prompt, request_options={"timeout": 15.0})
         reply = response.text.strip()
         
         await broadcast_to_residents(reply)
@@ -118,7 +134,8 @@ async def resumo_matinal():
         logger.error("Erro no Resumo Matinal: %s", e)
 
 def start_scheduler():
-    scheduler.add_job(ping_de_ociosidade, 'interval', minutes=30, id='ping_ociosidade')
+    # Roda de 15 em 15 minutos para testar a ociosidade com mais resolucao
+    scheduler.add_job(ping_de_ociosidade, 'interval', minutes=15, id='ping_ociosidade')
     scheduler.add_job(resumo_matinal, 'cron', hour=8, minute=30, id='bom_dia')
     scheduler.start()
     logger.info("Scheduler Iniciado: Ping de Ociosidade e Resumo Matinal Ativos.")

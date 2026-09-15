@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 export const metadata = { title: "Inicio" };
 
@@ -11,7 +12,7 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, xp_total")
+    .select("full_name")
     .eq("id", user.id)
     .single();
 
@@ -27,14 +28,16 @@ export default async function DashboardPage() {
 
   return (
     <main className="space-y-8 p-6 md:p-10">
-      <header className="space-y-1">
-        <p className="text-sm text-stone-500">Bom dia!</p>
-        <h1 className="font-display text-3xl font-semibold text-stone-800">
-          {profile?.full_name?.split(" ")[0] ?? "Morador"}
-        </h1>
-        <p className="text-sm text-stone-500">
-          {profile?.xp_total ?? 0} XP acumulados
-        </p>
+      <header className="flex justify-between items-end">
+        <div className="space-y-1">
+          <p className="text-sm text-stone-500">Bom dia!</p>
+          <h1 className="font-display text-3xl font-semibold text-stone-800">
+            {profile?.full_name?.split(" ")[0] ?? "Morador"}
+          </h1>
+        </div>
+        <Link href="/config" className="text-sm font-bold text-stone-500 hover:text-brand-600 bg-white border border-warm-200 px-4 py-2 rounded-xl transition-all shadow-sm hover:border-brand-200">
+          ⚙️ Configurações
+        </Link>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

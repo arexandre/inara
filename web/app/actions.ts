@@ -21,3 +21,18 @@ export async function payTransaction(transactionId: string) {
   await supabase.from("transactions").delete().eq("id", transactionId);
   revalidatePath("/");
 }
+
+export async function updateSystemSettings(formData: FormData) {
+  const supabase = await createClient();
+  const idle_time_min = Number(formData.get("idle_time_min"));
+  
+  if (!isNaN(idle_time_min)) {
+    await supabase.from("system_settings").upsert({
+      id: 1,
+      idle_time_min,
+      updated_at: new Date().toISOString()
+    });
+  }
+  
+  revalidatePath("/config");
+}

@@ -67,7 +67,7 @@ Você responde sempre de forma amigável, mas não gosta de enrolação.
 ### Comandos (Intents) Suportados:
 | Intent | Params | Descrição |
 |--------|--------|-----------|
-| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Criar nova tarefa. Se o usuário falar "até o fim de semana" ou "amanhã", calcule a data exata. Se não especificar prazo, OBRIGATORIAMENTE aplique um peso semântico baseando-se na urgência (ex: louça = data de hoje, pintar parede = hoje + 7 dias). |
+| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `weight?` (int 1-5) | Criar nova tarefa. Se o usuário falar "até o fim de semana" ou "amanhã", calcule a data. Se não especificar prazo, OBRIGATORIAMENTE aplique um peso semântico para a data. OBRIGATÓRIO: Atribua um `weight` (Peso/Esforço) de 1 (muito fácil) a 5 (muito difícil/chato) baseando-se no trabalho físico (ex: lavar banheiro = 4, descer lixo = 1). |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
 | `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
@@ -115,10 +115,8 @@ async def _process_ai_message(
         pass
 
     if not sender:
-        return (
-            "❌ Seu Telegram não está vinculado a nenhum morador.\n"
-            "Acesse o app Inara e vincule seu perfil primeiro."
-        )
+        logger.warning(f"Mensagem ignorada: telegram_id {chat_id} não vinculado.")
+        return ""
 
     # Contextualizar a mensagem para o Gemini
     from datetime import datetime
@@ -265,7 +263,7 @@ async def _execute_intent(
                         from app.logger import BRT
                         last_30d = (datetime.now(BRT) - timedelta(days=30)).isoformat()
                         
-                        t_res = sb.table("tasks").select("assignee_id, title, status").gte("created_at", last_30d).execute()
+                        t_res = sb.table("tasks").select("assignee_id, title, status, weight").gte("created_at", last_30d).execute()
                         
                         # Score: quanto MENOR, maior a chance de receber a tarefa.
                         scores = {p: 0 for p in profiles}
@@ -276,12 +274,13 @@ async def _execute_intent(
                         if t_res.data:
                             for t in t_res.data:
                                 aid = t.get("assignee_id")
+                                weight = t.get("weight") or 1  # Fallback to 1 if not set
                                 if aid in scores:
-                                    # Carga geral: tarefa em aberto pesa mais (2), concluída pesa menos (1)
+                                    # Carga baseada no PESO da tarefa
                                     if t.get("status") != "done":
-                                        scores[aid] += 2
+                                        scores[aid] += (weight * 2)
                                     else:
-                                        scores[aid] += 1
+                                        scores[aid] += weight
                                         
                                     # Punição por repetição da MESMA tarefa (justiça no rodízio)
                                     if t.get("title"):
