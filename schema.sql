@@ -341,3 +341,7 @@ CREATE TABLE public.api_usage_logs (
   cost_usd      NUMERIC(10, 6) DEFAULT 0,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS default_city TEXT DEFAULT 'Araguari, MG',
+  ADD COLUMN IF NOT EXISTS food_restrictions TEXT,
+  ADD COLUMN IF NOT EXISTS focus_hours TEXT;

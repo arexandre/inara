@@ -1,6 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { Fraunces, Quicksand } from "next/font/google";
+import "./globals.css";
+import RealtimeListener from "@/components/RealtimeListener";
+import XpBadge from "@/components/XpBadge";
+
+const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
+const quicksand = Quicksand({ subsets: ["latin"], variable: "--font-quicksand" });
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Início",    emoji: "🏠" },
@@ -27,62 +34,51 @@ export default async function AppLayout({
     .single();
 
   return (
-    <div className="flex min-h-dvh">
-      {/* Sidebar */}
-      <aside className="hidden md:flex flex-col w-60 shrink-0 bg-white/70 backdrop-blur-md
-                        border-r border-warm-200 px-4 py-6 gap-6">
-        {/* Logo */}
-        <div className="px-2">
-          <span className="font-display text-2xl font-semibold text-stone-800">inara</span>
-          <p className="text-xs text-stone-400 mt-0.5">lar organizado ✨</p>
+    <html lang="pt-BR" className={`${fraunces.variable} ${quicksand.variable}`}>
+      <body className="font-sans bg-warm-50 text-stone-800 antialiased selection:bg-brand-200">
+        <RealtimeListener />
+        <div className="flex min-h-dvh">
+          {/* Sidebar */}
+          <aside className="hidden md:flex flex-col w-64 shrink-0 bg-warm-100/50 backdrop-blur-xl border-r border-warm-200 px-6 py-8 gap-8">
+            <div className="px-2">
+              <span className="font-display text-3xl font-bold text-brand-700 tracking-tight">inara</span>
+              <p className="text-sm font-medium text-sage-600 mt-1">lar organizado ✨</p>
+            </div>
+
+            <nav className="flex-1 space-y-2 mt-4">
+              {NAV_ITEMS.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex items-center gap-4 rounded-3xl px-4 py-3 text-sm font-bold
+                             text-stone-600 transition-all hover:bg-white hover:text-brand-600 shadow-sm hover:shadow"
+                >
+                  <span className="text-xl">{item.emoji}</span>
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+
+            <div className="flex items-center gap-3 rounded-3xl bg-white p-3 shadow-sm border border-warm-100">
+              <div className="h-10 w-10 rounded-full bg-brand-100 flex items-center justify-center
+                              text-base font-bold text-brand-700">
+                {profile?.username?.[0]?.toUpperCase() ?? "?"}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-stone-700 truncate">
+                  @{profile?.username ?? "morador"}
+                </p>
+                <XpBadge initialXp={profile?.xp_total ?? 0} />
+              </div>
+            </div>
+          </aside>
+
+          {/* Main Content */}
+          <main className="flex-1 min-w-0 overflow-auto">
+            {children}
+          </main>
         </div>
-
-        {/* Navegação */}
-        <nav className="flex-1 space-y-1">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium
-                         text-stone-600 transition hover:bg-warm-100 hover:text-stone-900"
-            >
-              <span className="text-lg">{item.emoji}</span>
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-
-        {/* Perfil */}
-        <div className="flex items-center gap-3 rounded-2xl bg-warm-100 px-3 py-2.5">
-          <div className="h-8 w-8 rounded-full bg-brand-200 flex items-center justify-center
-                          text-sm font-medium text-brand-700">
-            {profile?.username?.[0]?.toUpperCase() ?? "?"}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-stone-700 truncate">
-              @{profile?.username ?? "—"}
-            </p>
-            <p className="text-xs text-stone-400">{profile?.xp_total ?? 0} XP</p>
-          </div>
-        </div>
-      </aside>
-
-      {/* Conteúdo principal */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Barra mobile */}
-        <nav className="md:hidden flex items-center justify-around border-b border-warm-200
-                        bg-white/80 backdrop-blur-sm px-4 py-2 sticky top-0 z-10">
-          {NAV_ITEMS.map((item) => (
-            <Link key={item.href} href={item.href}
-              className="flex flex-col items-center gap-0.5 text-stone-500 hover:text-stone-900">
-              <span className="text-xl">{item.emoji}</span>
-              <span className="text-[10px] font-medium">{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-
-        {children}
-      </div>
-    </div>
+      </body>
+    </html>
   );
 }

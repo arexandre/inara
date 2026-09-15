@@ -2,59 +2,59 @@ import type { Config } from "tailwindcss";
 
 const config: Config = {
   content: [
-    "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {
-      // Paleta Inara — orgânica, acolhedora, residencial
       colors: {
         brand: {
-          50:  "#fef9f0",
-          100: "#fdf0d5",
-          200: "#f9dba6",
-          300: "#f4bf6a",
-          400: "#ef9f35",
-          500: "#e8831a", // laranja-mel principal
-          600: "#ce6712",
-          700: "#a94e12",
-          800: "#883f16",
-          900: "#6f3515",
+          50: '#fcf6f4',
+          100: '#f8e9e3',
+          200: '#f1d2c6',
+          300: '#e7b39f',
+          400: '#da8d71',
+          500: '#d26f4c', // Terracota principal
+          600: '#c25535',
+          700: '#a2442a',
+          800: '#833925',
+          900: '#693121',
         },
         sage: {
-          50:  "#f4f7f4",
-          100: "#e5ede4",
-          200: "#cbdbc9",
-          300: "#a4c0a0",
-          400: "#75a070",
-          500: "#528050", // verde-sálvia
-          600: "#3f6540",
-          700: "#355236",
-          800: "#2c422d",
-          900: "#253726",
+          50: '#f6f7f4',
+          100: '#e9ece3',
+          200: '#d1d8c2',
+          300: '#b2c09c',
+          400: '#94a578',
+          500: '#798b5b', // Sálvia
+          600: '#5e6e45',
+          700: '#485536',
+          800: '#39432c',
+          900: '#313827',
         },
         warm: {
-          50:  "#fdfaf7",
-          100: "#f7f0e6",
-          200: "#ede0cb",
-          300: "#e0caab",
-          400: "#cda97e",
-          500: "#b98b58",
-          bg:  "#fdfaf7", // fundo geral
+          50: '#fffbf7', // bg geral
+          100: '#fcf3e8',
+          200: '#f7e3ce',
+          300: '#f0cead',
+          400: '#e5b387',
+          500: '#db9965',
+          600: '#cd7f47',
+          700: '#a96238',
+          bg: '#fffbf7',
         },
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
-        display: ["var(--font-fraunces)", "Georgia", "serif"],
+        sans: ["var(--font-quicksand)", "sans-serif"],
+        display: ["var(--font-fraunces)", "serif"],
       },
       borderRadius: {
         "2xl": "1rem",
         "3xl": "1.5rem",
-        "4xl": "2rem",
-      },
+      }
     },
   },
   plugins: [],
 };
-
 export default config;
