@@ -126,7 +126,7 @@ O campo "reply" DEVE ser uma mensagem em portuguÃƒÆ’Ã‚Âªs, simpÃƒÆ�
 # ---------------------------------------------------------------------------
 # Handler principal ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â chamado pelo webhook
 # ---------------------------------------------------------------------------
-async def handle_ai_message(
+async def _process_ai_message(
     text: str, 
     chat_id: int, 
     media_bytes: bytes | None = None, 
