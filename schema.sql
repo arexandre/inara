@@ -3,9 +3,6 @@
 --  Execute este script no SQL Editor do Supabase Dashboard.
 -- ============================================================
 
--- Habilitar extensão para IDs sequenciais formatados
-CREATE EXTENSION IF NOT EXISTS "pg_sequence";
-
 -- ============================================================
 -- ENUM TYPES
 -- ============================================================
