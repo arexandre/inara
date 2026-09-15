@@ -5,12 +5,13 @@ import RealtimeListener from "@/components/RealtimeListener";
 import { logout } from "@/app/actions";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Início",    emoji: "🏠" },
-  { href: "/tarefas",   label: "Tarefas",   emoji: "📦" },
-  { href: "/compras",   label: "Compras",   emoji: "🛒" },
-  { href: "/financas",  label: "Finanças",  emoji: "💸" },
-  { href: "/historico", label: "Histórico", emoji: "📜" },
-  { href: "/chat",      label: "Web Chat",  emoji: "💬" },
+  { href: "/dashboard",  label: "Início",    emoji: "🏠" },
+  { href: "/tarefas",    label: "Tarefas",   emoji: "📦" },
+  { href: "/compras",    label: "Compras",   emoji: "🛒" },
+  { href: "/financas",   label: "Finanças",  emoji: "💸" },
+  { href: "/calendario", label: "Calendário",emoji: "📅" },
+  { href: "/historico",  label: "Histórico", emoji: "📜" },
+  { href: "/chat",       label: "Web Chat",  emoji: "💬" },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {

@@ -67,7 +67,8 @@ Você responde sempre de forma amigável, mas não gosta de enrolação.
 ### Comandos (Intents) Suportados:
 | Intent | Params | Descrição |
 |--------|--------|-----------|
-| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `weight?` (int 1-5) | Criar nova tarefa. Se o usuário falar "até o fim de semana" ou "amanhã", calcule a data. Se não especificar prazo, OBRIGATORIAMENTE aplique um peso semântico para a data. OBRIGATÓRIO: Atribua um `weight` (Peso/Esforço) de 1 (muito fácil) a 5 (muito difícil/chato) baseando-se no trabalho físico (ex: lavar banheiro = 4, descer lixo = 1). |
+| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `weight?` (int 1-5) | Criar tarefa. Exige esforÃ§o (faxina, lixo). |
+| `event_create` | `title`, `event_date` (YYYY-MM-DD), `event_time?` (HH:MM), `is_all_day?` | Criar Evento/Compromisso. Ex: "sÃ¡bado tem churrasco", "aniversÃ¡rio da vovÃ³", "mÃ©dico Ã s 14h". |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
 | `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
@@ -246,6 +247,23 @@ async def _execute_intent(
 
     match intent:
         # ── TAREFAS ─────────────────────────────────────────────────
+        case "event_create":
+            insert_data = {
+                "title": params.get("title", "Novo Evento"),
+                "event_date": params.get("event_date"),
+                "event_time": params.get("event_time"),
+                "is_all_day": params.get("is_all_day", False),
+                "type": "event",
+                "created_by": sender["id"]
+            }
+            if not insert_data["event_date"]:
+                from datetime import datetime
+                from app.logger import BRT
+                insert_data["event_date"] = datetime.now(BRT).strftime("%Y-%m-%d")
+                
+            sb.table("events").insert(insert_data).execute()
+            return f"🎈 Evento '{insert_data['title']}' adicionado para {insert_data['event_date']}!"
+            
         case "task_create":
             assignee_id = None
             if params.get("assignee_username"):

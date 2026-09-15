@@ -1,9 +1,10 @@
 import os
 import asyncio
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import google.generativeai as genai
+import holidays
 
 from app.logger import logger, BRT
 from app.services.telegram import send_message
@@ -31,8 +32,6 @@ async def broadcast_to_residents(message: str):
 async def ping_de_ociosidade():
     try:
         sb = await get_supabase()
-        
-        # Buscar config de tempo
         idle_time_min = 120
         try:
             cfg = await sb.table("system_settings").select("idle_time_min").eq("id", 1).single().execute()
@@ -76,7 +75,6 @@ async def ping_de_ociosidade():
                 "Seja a Inara (acolhedora, eficiente, mas meio ir\u00f4nica). N\u00e3o exija comandos."
             )
             
-            # Executando gerador async com timeout
             response = await model.generate_content_async(prompt, request_options={"timeout": 15.0})
             reply = response.text.strip()
             
@@ -85,17 +83,31 @@ async def ping_de_ociosidade():
     except Exception as e:
         logger.error("Erro no Ping de Ociosidade: %s", e)
 
+
+async def check_local_holidays(date_obj):
+    # Feriados Nacionais + Locais Araguari
+    br_holidays = holidays.BR(years=date_obj.year)
+    
+    # Custom Araguari, MG
+    br_holidays._add_holiday(f"{date_obj.year}-08-28", "Aniversário de Araguari")
+    br_holidays._add_holiday(f"{date_obj.year}-08-06", "Senhor Bom Jesus da Cana Verde (Padroeiro)")
+    
+    date_str = date_obj.strftime('%Y-%m-%d')
+    if date_str in br_holidays:
+        return br_holidays.get(date_str)
+    return None
+
 async def resumo_matinal():
     try:
-        logger.info("Executando Resumo Matinal...")
+        logger.info("Executando Resumo Matinal com Calendário...")
         now = datetime.now(BRT)
+        hoje_iso = now.strftime("%Y-%m-%d")
         
         clima = await get_weather("Araguari,BR", "hoje")
-        
         sb = await get_supabase()
-        hoje_iso = now.strftime("%Y-%m-%d")
-        t_res = await sb.table("tasks").select("title, due_date, status, profiles!tasks_assignee_id_fkey(username)").neq("status", "done").execute()
         
+        # 1. Tarefas
+        t_res = await sb.table("tasks").select("title, due_date, status, profiles!tasks_assignee_id_fkey(username)").neq("status", "done").execute()
         tarefas_text = "Nenhuma tarefa urgente."
         if t_res.data:
             urgentes = []
@@ -104,7 +116,17 @@ async def resumo_matinal():
                     dono = t["profiles"]["username"] if t.get("profiles") else "Sem dono"
                     urgentes.append(f"- {t['title']} ({dono})")
             if urgentes:
-                tarefas_text = "Tarefas vencendo/vencidas:\n" + "\n".join(urgentes)
+                tarefas_text = "Tarefas urgentes:\n" + "\n".join(urgentes)
+                
+        # 2. Eventos (da tabela events)
+        e_res = await sb.table("events").select("title").eq("event_date", hoje_iso).execute()
+        eventos_text = ""
+        if e_res.data and len(e_res.data) > 0:
+            eventos_text = "Hoje temos estes eventos agendados: " + ", ".join([e["title"] for e in e_res.data])
+
+        # 3. Feriados (Python holidays)
+        feriado_hoje = await check_local_holidays(now)
+        feriado_text = f"ATENÇÃO: Hoje é feriado! ({feriado_hoje})" if feriado_hoje else ""
         
         genai.configure(api_key=os.environ["GEMINI_API_KEY"])
         model = genai.GenerativeModel("gemini-3.5-flash-lite")
@@ -118,11 +140,14 @@ async def resumo_matinal():
         estilo = random.choice(estilos)
         
         prompt = (
-            f"Hoje \u00e9 {now.strftime('%d/%m/%Y')}. Escreva a mensagem de Bom Dia matinal da Inara para os moradores da casa.\n"
+            f"Hoje é {now.strftime('%d/%m/%Y')}.\n"
+            f"Escreva a mensagem de Bom Dia da Inara para os moradores da casa.\n"
             f"Adote este tom: {estilo}.\n"
             f"Clima: {clima}\n"
-            f"Alertas: {tarefas_text}\n"
-            "Mantenha curto, elegante, sem parecer que est\u00e1 lendo uma tabela."
+            f"Tarefas: {tarefas_text}\n"
+            f"{'Eventos de hoje: ' + eventos_text if eventos_text else ''}\n"
+            f"{feriado_text}\n"
+            "Mantenha curto, elegante, cite os eventos ou feriados de forma fluida (não leia como uma lista engessada se possível)."
         )
         
         response = await model.generate_content_async(prompt, request_options={"timeout": 15.0})
@@ -134,8 +159,7 @@ async def resumo_matinal():
         logger.error("Erro no Resumo Matinal: %s", e)
 
 def start_scheduler():
-    # Roda de 15 em 15 minutos para testar a ociosidade com mais resolucao
     scheduler.add_job(ping_de_ociosidade, 'interval', minutes=15, id='ping_ociosidade')
     scheduler.add_job(resumo_matinal, 'cron', hour=8, minute=30, id='bom_dia')
     scheduler.start()
-    logger.info("Scheduler Iniciado: Ping de Ociosidade e Resumo Matinal Ativos.")
+    logger.info("Scheduler Iniciado: Ping e Resumo Matinal Ativos.")
