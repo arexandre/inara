@@ -326,7 +326,8 @@ async def _execute_intent(
             resp_str = f"📋 Tarefa {code} criada!"
             if a_username:
                 resp_str = f"📋 Tarefa {code} criada e atribuída a @{a_username}!"
-            resp_str += f" (Prazo: {insert_data['due_date']})"
+            if "due_date" in insert_data:
+                resp_str += f" (Prazo: {insert_data['due_date']})"
             
             return resp_str
 
@@ -462,7 +463,7 @@ async def _execute_intent(
         # ── CLIMA ───────────────────────────────────────────────────
         case "weather_check":
             from app.services.weather import get_weather
-            city = params.get("city", "São Paulo")
+            city = params.get("city", "Araguari, MG")
             timeframe = params.get("timeframe", "hoje")
             return await get_weather(city, timeframe)
 
