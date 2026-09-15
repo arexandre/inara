@@ -1,14 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { completeTask } from "@/app/actions";
 import type { Task, TaskStatus } from "@/types/database";
+import TaskCard from "./TaskCard";
 
 export const metadata = { title: "Tarefas" };
 
 const COLUMNS: { status: TaskStatus; label: string; emoji: string }[] = [
-  { status: "backlog",     label: "Backlog",    emoji: "📋" },
-  { status: "todo",        label: "A Fazer",    emoji: "📌" },
-  { status: "in_progress", label: "Fazendo",    emoji: "⚡" },
+  { status: "backlog",     label: "Backlog",    emoji: "📦" },
+  { status: "todo",        label: "A Fazer",    emoji: "🎯" },
+  { status: "in_progress", label: "Fazendo",    emoji: "🚧" },
   { status: "done",        label: "Feito",      emoji: "✅" },
 ];
 
@@ -48,30 +48,7 @@ export default async function TarefasPage() {
             
             <div className="space-y-3">
               {(grouped[col.status] ?? []).map((task) => (
-                <div key={task.id} className="bg-white p-5 flex flex-col gap-3 rounded-2xl shadow-sm border border-warm-100 transition-all hover:shadow-md hover:border-brand-200 group">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-brand-500">#{String(task.seq_id).padStart(4, "0")}</span>
-                    {(task.status !== "done") && (
-                      <form action={async () => {
-                        "use server";
-                        await completeTask(task.id);
-                      }}>
-                        <button type="submit" className="text-xs font-bold text-stone-400 hover:text-brand-600 hover:bg-brand-50 px-2 py-1 rounded-xl transition-colors">
-                          ✓ Concluir
-                        </button>
-                      </form>
-                    )}
-                  </div>
-                  <h3 className="font-bold text-stone-800 leading-snug">{task.title}</h3>
-                  {task.description && (
-                    <p className="text-sm text-stone-500 font-medium line-clamp-2">{task.description}</p>
-                  )}
-                  <div className="flex items-center justify-between mt-auto pt-3 border-t border-warm-100/50">
-                    <div className="text-sm font-bold text-sage-600">
-                      @{(task as any).assignee?.username ?? "sem dono"}
-                    </div>
-                  </div>
-                </div>
+                <TaskCard key={task.id} task={task as any} />
               ))}
             </div>
           </section>

@@ -16,8 +16,6 @@ export async function purchaseShoppingItem(id: string) {
 
 export async function payTransaction(transactionId: string) {
   const supabase = await createClient();
-  // Simplified: maybe mark as paid or delete. We'll just delete for now or update a status if it existed.
-  // Actually, we can just delete it from ledger to represent it was paid off in MVP.
   await supabase.from("transactions").delete().eq("id", transactionId);
   revalidatePath("/");
 }
@@ -35,4 +33,58 @@ export async function updateSystemSettings(formData: FormData) {
   }
   
   revalidatePath("/config");
+}
+
+export async function deleteTask(taskId: string) {
+  const supabase = await createClient();
+  await supabase.from("tasks").delete().eq("id", taskId);
+  revalidatePath("/");
+}
+
+export async function reassignTask(taskId: string, currentAssigneeId: string | null) {
+  const supabase = await createClient();
+  
+  const { data: profiles } = await supabase.from("profiles").select("id");
+  if (!profiles || profiles.length === 0) return;
+  
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+  const { data: tasks } = await supabase
+    .from("tasks")
+    .select("assignee_id, status, weight")
+    .gte("created_at", thirtyDaysAgo.toISOString());
+    
+  const scores: Record<string, number> = {};
+  profiles.forEach(p => scores[p.id] = 0);
+  
+  if (tasks) {
+    tasks.forEach(t => {
+      const aid = t.assignee_id;
+      if (aid && scores[aid] !== undefined) {
+        const w = t.weight || 1;
+        scores[aid] += (t.status !== "done") ? (w * 2) : w;
+      }
+    });
+  }
+  
+  // Exclude current assignee so it passes the bomb
+  if (currentAssigneeId && scores[currentAssigneeId] !== undefined) {
+    delete scores[currentAssigneeId];
+  }
+  
+  let bestId = null;
+  let minScore = Infinity;
+  for (const [id, score] of Object.entries(scores)) {
+    if (score < minScore) {
+      minScore = score;
+      bestId = id;
+    }
+  }
+  
+  if (bestId) {
+    await supabase.from("tasks").update({ assignee_id: bestId }).eq("id", taskId);
+  }
+  
+  revalidatePath("/");
 }
