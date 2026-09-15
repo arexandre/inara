@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Inter, Fraunces } from "next/font/google";
+import { Fraunces, Gabarito } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const gabarito = Gabarito({
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-gabarito",
   display: "swap",
 });
 
@@ -16,7 +16,7 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: { default: "Inara", template: "%s — Inara" },
+  title: { default: "Inara", template: "%s | Inara" },
   description: "Seu ERP doméstico, do jeitinho de casa.",
   icons: { icon: "/favicon.ico" },
 };
@@ -27,8 +27,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" className={`${inter.variable} ${fraunces.variable}`}>
-      <body className="bg-[#fdfaf7] font-sans text-stone-800 antialiased">
+    <html lang="pt-BR" className={`${gabarito.variable} ${fraunces.variable}`}>
+      <body className="font-sans bg-warm-50 text-stone-800 antialiased selection:bg-brand-200">
         {children}
       </body>
     </html>

@@ -1,84 +1,73 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Fraunces, Gabarito } from "next/font/google";
-import "../globals.css";
 import RealtimeListener from "@/components/RealtimeListener";
 import XpBadge from "@/components/XpBadge";
 
-const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
-const gabarito = Gabarito({ subsets: ["latin"], variable: "--font-gabarito" });
-
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Início",    emoji: "🏠" },
-  { href: "/tarefas",   label: "Tarefas",   emoji: "✅" },
-  { href: "/financas",  label: "Finanças",  emoji: "💸" },
+  { href: "/tarefas",   label: "Tarefas",   emoji: "📋" },
   { href: "/compras",   label: "Compras",   emoji: "🛒" },
-  { href: "/historico", label: "Histórico", emoji: "💬" },
-  { href: "/admin",     label: "Uso de API",emoji: "📊" },
+  { href: "/financas",  label: "Finanças",  emoji: "💸" },
+  { href: "/historico", label: "Histórico", emoji: "📜" },
 ];
 
-export default async function AppLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  
+  if (!user) {
+    redirect("/login");
+  }
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("username, avatar_url, xp_total")
+    .select("*")
     .eq("id", user.id)
     .single();
 
   return (
-    <html lang="pt-BR" className={`${fraunces.variable} ${gabarito.variable}`}>
-      <body className="font-sans bg-warm-50 text-stone-800 antialiased selection:bg-brand-200">
-        <RealtimeListener />
-        <div className="flex min-h-dvh">
-          {/* Sidebar */}
-          <aside className="hidden md:flex flex-col w-64 shrink-0 bg-warm-100/50 backdrop-blur-xl border-r border-warm-200 px-6 py-8 gap-8">
-            <div className="px-2">
-              <span className="font-display text-3xl font-bold text-brand-700 tracking-tight">inara</span>
-              <p className="text-sm font-medium text-sage-600 mt-1">lar organizado ✨</p>
+    <>
+      <RealtimeListener />
+      <div className="flex min-h-dvh">
+        {/* Sidebar */}
+        <aside className="hidden md:flex flex-col w-64 shrink-0 bg-warm-100/50 backdrop-blur-xl border-r border-warm-200 px-6 py-8 gap-8">
+          <div className="px-2">
+            <span className="font-display text-3xl font-bold text-brand-700 tracking-tight">inara</span>
+            <p className="text-sm font-medium text-sage-600 mt-1">lar organizado ✨</p>
+          </div>
+
+          <nav className="flex-1 space-y-2">
+            {NAV_ITEMS.map((item) => (
+              <Link 
+                key={item.href} 
+                href={item.href}
+                className="flex items-center gap-3 px-4 py-3 rounded-2xl text-stone-600 hover:bg-warm-200/50 hover:text-stone-900 font-bold transition-all"
+              >
+                <span className="text-xl">{item.emoji}</span>
+                <span>{item.label}</span>
+              </Link>
+            ))}
+          </nav>
+
+          <div className="pt-6 border-t border-warm-200 px-2 flex items-center gap-4">
+            <div className="h-10 w-10 shrink-0 rounded-full bg-sage-200 flex items-center justify-center text-sage-700 font-bold shadow-sm">
+              {profile?.username?.[0]?.toUpperCase()}
             </div>
-
-            <nav className="flex-1 space-y-2 mt-4">
-              {NAV_ITEMS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="flex items-center gap-4 rounded-3xl px-4 py-3 text-sm font-bold
-                             text-stone-600 transition-all hover:bg-white hover:text-brand-600 shadow-sm hover:shadow"
-                >
-                  <span className="text-xl">{item.emoji}</span>
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
-
-            <div className="flex items-center gap-3 rounded-3xl bg-white p-3 shadow-sm border border-warm-100">
-              <div className="h-10 w-10 rounded-full bg-brand-100 flex items-center justify-center
-                              text-base font-bold text-brand-700">
-                {profile?.username?.[0]?.toUpperCase() ?? "?"}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-stone-700 truncate">
-                  @{profile?.username ?? "morador"}
-                </p>
-                <XpBadge initialXp={profile?.xp_total ?? 0} />
-              </div>
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-sm text-stone-800 truncate">
+                {profile?.full_name || profile?.username}
+              </span>
+              <XpBadge profileId={user.id} />
             </div>
-          </aside>
+          </div>
+        </aside>
 
-          {/* Main Content */}
-          <main className="flex-1 min-w-0 overflow-auto">
-            {children}
-          </main>
-        </div>
-      </body>
-    </html>
+        {/* Main */}
+        <main className="flex-1 bg-white md:rounded-l-[2.5rem] md:shadow-[-10px_0_30px_rgba(0,0,0,0.02)] overflow-hidden">
+          {children}
+        </main>
+      </div>
+    </>
   );
 }
