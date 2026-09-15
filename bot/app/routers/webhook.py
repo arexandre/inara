@@ -109,11 +109,13 @@ async def telegram_webhook(
         await send_message(chat_id, reply)
         return {"status": "fast_track", "command": base_command}
 
-    # ── 5. Fallback → LLM (Gemini) — placeholder para Fase 2 ─────────────────
+    # ── 5. LLM (Gemini) — processamento de linguagem natural ────────────────
     logger.info("LLM route: chat_id=%s, text=%r", chat_id, text[:60])
-    # TODO: from app.services.ai import handle_ai_message; await handle_ai_message(...)
-    await send_message(
-        chat_id,
-        "🤖 Entendido! Minha IA está sendo preparada. Enquanto isso, use /ajuda para ver os comandos disponíveis.",
-    )
-    return {"status": "llm_queued"}
+    try:
+        from app.services.ai import handle_ai_message
+        reply = await handle_ai_message(text, chat_id)
+    except Exception as exc:
+        logger.exception("Erro no handler de IA: %s", exc)
+        reply = "⚠️ Ocorreu um erro ao processar sua mensagem. Tente novamente."
+    await send_message(chat_id, reply)
+    return {"status": "llm_processed"}

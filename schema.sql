@@ -130,7 +130,9 @@ CREATE TABLE public.transactions (
 );
 
 -- View: saldo e rateio por morador (apenas gastos coletivos)
-CREATE OR REPLACE VIEW public.balance_summary AS
+-- SECURITY INVOKER garante que a view respeita RLS do usuário que consulta
+CREATE OR REPLACE VIEW public.balance_summary
+WITH (security_invoker = on) AS
 WITH collective_total AS (
   SELECT COALESCE(SUM(amount), 0) AS total
   FROM public.transactions
