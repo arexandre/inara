@@ -31,7 +31,7 @@ def _get_model():
     if _model is None:
         genai.configure(api_key=os.environ["GEMINI_API_KEY"])
         _model = genai.GenerativeModel(
-            model_name="gemini-3.6-flash",
+            model_name="gemini-3.8-flash",
             system_instruction=SYSTEM_PROMPT,
             generation_config=genai.GenerationConfig(
                 response_mime_type="application/json",
