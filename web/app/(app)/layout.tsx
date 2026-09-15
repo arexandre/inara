@@ -7,6 +7,8 @@ const NAV_ITEMS = [
   { href: "/tarefas",   label: "Tarefas",   emoji: "✅" },
   { href: "/financas",  label: "Finanças",  emoji: "💸" },
   { href: "/compras",   label: "Compras",   emoji: "🛒" },
+  { href: "/historico", label: "Histórico", emoji: "💬" },
+  { href: "/admin",     label: "Uso de API",emoji: "📊" },
 ];
 
 export default async function AppLayout({
