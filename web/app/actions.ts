@@ -1,6 +1,7 @@
 "use server";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 export async function completeTask(taskId: string) {
   const supabase = await createClient();
@@ -20,25 +21,50 @@ export async function payTransaction(transactionId: string) {
   revalidatePath("/");
 }
 
-export async function updateSystemSettings(formData: FormData) {
+export async function logout() {
   const supabase = await createClient();
-  const idle_time_min = Number(formData.get("idle_time_min"));
-  
-  if (!isNaN(idle_time_min)) {
-    await supabase.from("system_settings").upsert({
-      id: 1,
-      idle_time_min,
-      updated_at: new Date().toISOString()
-    });
-  }
-  
-  revalidatePath("/config");
+  await supabase.auth.signOut();
+  redirect("/login");
 }
 
 export async function deleteTask(taskId: string) {
   const supabase = await createClient();
   await supabase.from("tasks").delete().eq("id", taskId);
   revalidatePath("/");
+}
+
+export async function updateProfileSettings(formData: FormData) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const theme_preference = formData.get("theme_preference") as string;
+  const personal_context = formData.get("personal_context") as string;
+  
+  await supabase.from("profiles").update({
+    theme_preference,
+    personal_context
+  }).eq("id", user.id);
+
+  // Se admin, também salva system_settings
+  const { data: profile } = await supabase.from("profiles").select("is_admin").eq("id", user.id).single();
+  if (profile?.is_admin) {
+    const idle_time_min = Number(formData.get("idle_time_min"));
+    const house_address = formData.get("house_address") as string;
+    const house_rules = formData.get("house_rules") as string;
+    
+    if (!isNaN(idle_time_min)) {
+      await supabase.from("system_settings").upsert({
+        id: 1,
+        idle_time_min,
+        house_address,
+        house_rules,
+        updated_at: new Date().toISOString()
+      });
+    }
+  }
+  
+  revalidatePath("/", "layout");
 }
 
 export async function reassignTask(taskId: string, currentAssigneeId: string | null) {
@@ -68,7 +94,6 @@ export async function reassignTask(taskId: string, currentAssigneeId: string | n
     });
   }
   
-  // Exclude current assignee so it passes the bomb
   if (currentAssigneeId && scores[currentAssigneeId] !== undefined) {
     delete scores[currentAssigneeId];
   }
