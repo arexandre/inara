@@ -1,5 +1,5 @@
 """
-Inara Bot — Modo Polling (desenvolvimento local).
+Inara Bot ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Modo Polling (desenvolvimento local).
 
 Em vez de receber webhooks, este script busca updates via getUpdates.
 Use apenas para desenvolvimento. Em producao, use o webhook via FastAPI.
@@ -16,7 +16,7 @@ import sys
 import httpx
 from dotenv import load_dotenv
 
-# Adicionar o diretório raiz ao path
+# Adicionar o diretÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rio raiz ao path
 sys.path.insert(0, os.path.dirname(__file__))
 
 load_dotenv()
@@ -25,6 +25,8 @@ from app.logger import logger
 from app.services.fast_track import handle_fast_track
 from app.services.telegram import send_message
 from app.services.scheduler import start_scheduler
+from app.services.ai import start_ai_worker
+import asyncio
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 API_BASE = f"https://api.telegram.org/bot{TOKEN}"
@@ -45,7 +47,7 @@ async def process_message(message: dict) -> None:
     chat_id = message["chat"]["id"]
     text = message.get("text", "").strip()
     
-    # Suporte a mídia (voz / imagem)
+    # Suporte a mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­dia (voz / imagem)
     media_bytes = None
     media_mime = None
     
@@ -59,7 +61,7 @@ async def process_message(message: dict) -> None:
             
     elif "photo" in message:
         from app.services.telegram import download_file
-        # photos é uma lista (vários tamanhos), pega o maior
+        # photos ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â© uma lista (vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios tamanhos), pega o maior
         file_id = message["photo"][-1]["file_id"]
         media_mime = "image/jpeg"
         media_bytes = await download_file(file_id)
@@ -75,7 +77,8 @@ async def process_message(message: dict) -> None:
         handler_name = FAST_TRACK_COMMANDS[base_command]
         args = text[len(base_command):].strip()
         reply = await handle_fast_track(handler_name, args, chat_id)
-        await send_message(chat_id, reply)
+        if reply:
+                            await send_message(chat_id, reply)
         return
 
     # LLM (Gemini)
@@ -86,12 +89,14 @@ async def process_message(message: dict) -> None:
     except Exception as exc:
         logger.exception("Erro no handler de IA: %s", exc)
         reply = "Ocorreu um erro ao processar sua mensagem. Tente novamente."
-    await send_message(chat_id, reply)
+    if reply:
+                            await send_message(chat_id, reply)
 
 
 async def poll_updates() -> None:
     """Loop principal de long-polling."""
     start_scheduler()
+    asyncio.create_task(start_ai_worker())
     offset = 0
     logger.info("Inara Bot iniciado em modo polling! Aguardando mensagens...")
     logger.info("Envie /start para @home_inara_bot no Telegram")
