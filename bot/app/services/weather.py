@@ -10,6 +10,15 @@ async def get_weather(city: str, timeframe: str) -> str:
     if not api_key:
         return "⚠️ API do clima não configurada."
     
+    # Registra uso de API (Fire and Forget)
+    try:
+        from supabase import create_client
+        sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+        sb.table("api_usage_logs").insert({"service_name": "openweathermap", "tokens_used": 1}).execute()
+    except Exception as e:
+        import logging
+        logging.getLogger("inara.weather").warning(f"Falha ao logar uso de API Clima: {e}")
+
     if city == "São Paulo" or not city:
         city = "Araguari, MG"
         

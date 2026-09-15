@@ -301,3 +301,25 @@ CREATE POLICY "adder_delete_shopping"
 -- ============================================================
 -- ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
 -- ALTER PUBLICATION supabase_realtime ADD TABLE public.shopping_list;
+
+-- ============================================================
+-- TABELA: chat_history (Armazena o histórico do bot)
+-- ============================================================
+CREATE TABLE public.chat_history (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id  UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  message     TEXT NOT NULL,
+  is_bot      BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- TABELA: api_usage_logs (Monitoramento de Quota)
+-- ============================================================
+CREATE TABLE public.api_usage_logs (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  service_name  TEXT NOT NULL,
+  tokens_used   INTEGER NOT NULL DEFAULT 0,
+  cost_usd      NUMERIC(10, 6) DEFAULT 0,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

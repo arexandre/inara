@@ -165,6 +165,20 @@ async def handle_ai_message(
         model = _get_model()
         response = model.generate_content(contents)
         raw = response.text.strip()
+        
+        # Logar uso da API Gemini
+        try:
+            tokens = 0
+            if hasattr(response, "usage_metadata") and hasattr(response.usage_metadata, "total_token_count"):
+                tokens = response.usage_metadata.total_token_count
+            
+            if tokens > 0:
+                sb.table("api_usage_logs").insert({
+                    "service_name": "gemini-3.8-flash",
+                    "tokens_used": tokens
+                }).execute()
+        except Exception as e:
+            logger.warning("Falha ao registrar log de API: %s", e)
 
         # Parse do JSON
         result = json.loads(raw)
@@ -196,7 +210,20 @@ async def handle_ai_message(
         if action_replies:
             combined_text += "\n\n" + "\n".join(action_replies)
             
-        return combined_text or "✅ Feito!"
+        final_reply = combined_text or "✅ Feito!"
+        
+        # ── Salvar no Histórico de Chat (Fire and Forget) ──
+        try:
+            # Salva a mensagem do usuário (ou tag [Imagem] / [Áudio])
+            user_msg = text if text else ("[Mídia]" if media_bytes else "")
+            if user_msg:
+                sb.table("chat_history").insert({"profile_id": sender["id"], "message": user_msg, "is_bot": False}).execute()
+            # Salva a resposta do bot
+            sb.table("chat_history").insert({"profile_id": sender["id"], "message": final_reply, "is_bot": True}).execute()
+        except Exception as e:
+            logger.warning("Falha ao salvar chat_history (Tabela não existe?): %s", e)
+
+        return final_reply
 
     except json.JSONDecodeError as e:
         logger.error("Gemini retornou JSON inválido: %s - Raw: %s", e, raw)
@@ -224,12 +251,27 @@ async def _execute_intent(
                 if a.data:
                     assignee_id = a.data["id"]
             else:
-                # Lógica Round-Robin simples (pega o morador com menos tarefas em aberto)
-                rr_res = sb.table("profiles").select("id").execute()
-                if rr_res.data:
-                    # Em produção ideal faremos um JOIN count, aqui pegamos aleatório ou primeiro para MVP
+                # Lógica Round-Robin Real: pega o morador com menos tarefas em aberto
+                try:
+                    # 1. Pega todos os perfis
+                    rr_res = sb.table("profiles").select("id").execute()
+                    if rr_res.data:
+                        profiles = [p["id"] for p in rr_res.data]
+                        # 2. Conta quantas tarefas abertas cada um tem
+                        t_res = sb.table("tasks").select("assignee_id").neq("status", "done").execute()
+                        counts = {p: 0 for p in profiles}
+                        if t_res.data:
+                            for t in t_res.data:
+                                aid = t.get("assignee_id")
+                                if aid in counts:
+                                    counts[aid] += 1
+                        # 3. Escolhe quem tem menos tarefas
+                        if counts:
+                            assignee_id = min(counts, key=counts.get)
+                except Exception as e:
+                    logger.error("Erro no Round-Robin: %s", e)
                     import random
-                    assignee_id = random.choice(rr_res.data)["id"]
+                    assignee_id = random.choice(rr_res.data)["id"] if rr_res and rr_res.data else None
 
             insert_data = {
                 "title": params["title"],
