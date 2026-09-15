@@ -88,9 +88,9 @@ SEMPRE responda com um JSON válido no seguinte formato:
 
 | Intent | Params | Descrição |
 |--------|--------|-----------|
-| `task_create` | `title`, `description?`, `assignee_username?`, `xp_reward?` | Criar nova tarefa |
+| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Criar nova tarefa |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
-| `task_update` | `seq_id`, `status?`, `assignee_username?` | Atualizar tarefa |
+| `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
 | `transaction_list` | `limit?` | Listar transações recentes |
 | `balance_check` | — | Ver rateio/saldo |
@@ -203,21 +203,25 @@ async def _execute_intent(
                 if a.data:
                     assignee_id = a.data["id"]
 
-            r = sb.table("tasks").insert({
+            insert_data = {
                 "title": params["title"],
                 "description": params.get("description"),
                 "assignee_id": assignee_id,
                 "created_by": sender["id"],
-                "xp_reward": params.get("xp_reward", 10),
                 "status": "todo",
-            }).execute()
+            }
+            if params.get("due_date"):
+                insert_data["due_date"] = params["due_date"]
+                
+            r = sb.table("tasks").insert(insert_data).execute()
 
             task = r.data[0]
             code = f"#{str(task['seq_id']).zfill(4)}"
-            return f"📋 Tarefa {code} criada!"
+            prazo_msg = f" (Prazo: {params['due_date']})" if params.get("due_date") else ""
+            return f"📋 Tarefa {code} criada{prazo_msg}!"
 
         case "task_list":
-            query = sb.table("tasks").select("seq_id, title, status, assignee_id").neq("status", "done")
+            query = sb.table("tasks").select("seq_id, title, status, assignee_id, due_date").neq("status", "done")
             if params.get("status"):
                 query = query.eq("status", params["status"])
             r = query.order("seq_id").execute()
@@ -230,7 +234,8 @@ async def _execute_intent(
             for t in r.data:
                 code = f"#{str(t['seq_id']).zfill(4)}"
                 e = emoji_map.get(t["status"], "•")
-                lines.append(f"{e} `{code}` {t['title']}")
+                prazo = f" 📅 {t['due_date']}" if t.get("due_date") else ""
+                lines.append(f"{e} `{code}` {t['title']}{prazo}")
             return "\n".join(lines)
 
         case "task_update":
@@ -241,6 +246,8 @@ async def _execute_intent(
             update = {}
             if params.get("status"):
                 update["status"] = params["status"]
+            if params.get("due_date"):
+                update["due_date"] = params["due_date"]
             if params.get("assignee_username"):
                 a = sb.table("profiles").select("id").ilike("username", params["assignee_username"]).single().execute()
                 if a.data:

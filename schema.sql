@@ -70,7 +70,7 @@ CREATE TABLE public.tasks (
   assignee_id   UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_by    UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
   xp_reward     INTEGER NOT NULL DEFAULT 10, -- XP base da tarefa
-  due_date      DATE,
+  due_date      DATE,                          -- Prazo de conclusao
   completed_at  TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()

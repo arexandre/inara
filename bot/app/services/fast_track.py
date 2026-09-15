@@ -122,7 +122,7 @@ async def _cmd_pix(args: str, chat_id: int) -> str:
 
 async def _cmd_tarefas(args: str, chat_id: int) -> str:
     sb = await get_supabase()
-    response = await sb.table("tasks").select("seq_id, title, status, profiles(username)").neq("status", "done").order("seq_id").execute()
+    response = await sb.table("tasks").select("seq_id, title, status, due_date, profiles(username)").neq("status", "done").order("seq_id").execute()
     tasks = response.data
     if not tasks:
         return "🎉 Nenhuma tarefa pendente!"
@@ -132,5 +132,6 @@ async def _cmd_tarefas(args: str, chat_id: int) -> str:
         code = f"#{str(t['seq_id']).zfill(4)}"
         e = emoji_map.get(t["status"], "•")
         assignee = f" (@{t['profiles']['username']})" if t.get("profiles") else ""
-        lines.append(f"{e} `{code}` {t['title']}{assignee}")
+        prazo = f" 📅 {t['due_date']}" if t.get("due_date") else ""
+        lines.append(f"{e} `{code}` {t['title']}{assignee}{prazo}")
     return "\n".join(lines)
