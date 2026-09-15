@@ -147,21 +147,38 @@ async def handle_ai_message(text: str, chat_id: int) -> str:
 
         # Parse do JSON
         result = json.loads(raw)
-        intent = result.get("intent", "chat")
-        params = result.get("params", {})
-        reply = result.get("reply", "Entendido!")
+        
+        # Pode ser um único dicionário ou uma lista de ações
+        actions = result if isinstance(result, list) else [result]
+        
+        final_replies = []
+        action_replies = []
+        
+        for act in actions:
+            intent = act.get("intent", "chat")
+            params = act.get("params", {})
+            reply = act.get("reply", "Entendido!")
+            
+            logger.info("Intent: %s | Params: %s | Sender: @%s", intent, params, sender["username"])
+            
+            # Adiciona o texto natural se houver (evita repetir "Anotado" pra cada item)
+            if reply and reply not in final_replies:
+                final_replies.append(reply)
+                
+            # Executar a ação correspondente
+            action_reply = await _execute_intent(intent, params, sender, sb)
+            if action_reply:
+                action_replies.append(action_reply)
 
-        logger.info("Intent: %s | Params: %s | Sender: @%s", intent, params, sender["username"])
-
-        # Executar a ação correspondente
-        action_reply = await _execute_intent(intent, params, sender, sb)
-
-        if action_reply:
-            return f"{reply}\n\n{action_reply}"
-        return reply
+        # Montar resposta final combinada
+        combined_text = "\n".join(final_replies)
+        if action_replies:
+            combined_text += "\n\n" + "\n".join(action_replies)
+            
+        return combined_text or "✅ Feito!"
 
     except json.JSONDecodeError as e:
-        logger.error("Gemini retornou JSON inválido: %s", e)
+        logger.error("Gemini retornou JSON inválido: %s - Raw: %s", e, raw)
         return "🤖 Desculpa, tive um problema ao processar. Tenta de novo?"
 
     except Exception as e:

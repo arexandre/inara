@@ -3,12 +3,12 @@ import { redirect } from "next/navigation";
 
 /**
  * Página de login do Inara.
- * Usa autenticação Magic Link (email) via Supabase Auth.
+ * Usa autenticação com e-mail e senha.
  */
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ redirect?: string; error?: string; sent?: string }>;
+  searchParams: Promise<{ redirect?: string; error?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await createClient();
@@ -32,11 +32,6 @@ export default async function LoginPage({
 
         {/* Card de login */}
         <div className="card p-8 space-y-6">
-          {params.sent && (
-            <div className="rounded-xl bg-sage-50 border border-sage-200 p-3 text-sm text-sage-700">
-              ✉️ Link enviado! Verifique seu e-mail.
-            </div>
-          )}
           {params.error && (
             <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700">
               {params.error}
@@ -55,22 +50,34 @@ export default async function LoginPage({
                 name="email"
                 type="email"
                 required
+                defaultValue="admin@inara.local"
                 placeholder="voce@casa.com"
                 className="w-full rounded-2xl border border-warm-300 bg-white px-4 py-2.5
                            text-stone-800 placeholder:text-stone-400
-                           focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent
-                           transition"
+                           focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10"
+              />
+            </div>
+            
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="block text-sm font-medium text-stone-700">
+                Senha
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                defaultValue="InaraPassword123!"
+                className="w-full rounded-2xl border border-warm-300 bg-white px-4 py-2.5
+                           text-stone-800 placeholder:text-stone-400
+                           focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10"
               />
             </div>
 
-            <button type="submit" className="btn-primary w-full justify-center">
-              Entrar com Magic Link ✨
+            <button type="submit" className="btn-primary w-full mt-2">
+              Entrar
             </button>
           </form>
-
-          <p className="text-center text-xs text-stone-400">
-            Acesso restrito aos moradores cadastrados.
-          </p>
         </div>
       </div>
     </main>

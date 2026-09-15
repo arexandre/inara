@@ -4,23 +4,22 @@ import { NextRequest, NextResponse } from "next/server";
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const email = formData.get("email") as string;
+  const password = formData.get("password") as string;
   const redirectPath = (formData.get("redirect") as string) ?? "/dashboard";
 
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signInWithOtp({
+  const { error } = await supabase.auth.signInWithPassword({
     email,
-    options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?redirect=${redirectPath}`,
-    },
+    password,
   });
 
   if (error) {
     const url = new URL("/login", request.url);
-    url.searchParams.set("error", "Falha ao enviar o link. Verifique o e-mail e tente novamente.");
+    url.searchParams.set("error", "E-mail ou senha inválidos.");
     return NextResponse.redirect(url, { status: 303 });
   }
 
-  // Redireciona para página de confirmação
-  return NextResponse.redirect(new URL("/login?sent=true", request.url), { status: 303 });
+  // Redireciona para página logada
+  return NextResponse.redirect(new URL(redirectPath, request.url), { status: 303 });
 }
