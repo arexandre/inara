@@ -13,6 +13,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 const PUBLIC_PATHS = [
   "/login",
   "/auth/callback",
+  "/auth/login",
   "/_next",
   "/favicon.ico",
   "/icons",
