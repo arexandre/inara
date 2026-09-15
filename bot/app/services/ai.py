@@ -88,7 +88,7 @@ SEMPRE responda com um JSON válido no seguinte formato:
 
 | Intent | Params | Descrição |
 |--------|--------|-----------|
-| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Criar nova tarefa |
+| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Criar nova tarefa. Se o usuário não especificar o prazo, estime a data baseando-se no peso/urgência da atividade (ex: louça=hoje, pintar parede=15 dias). |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
 | `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
@@ -150,7 +150,9 @@ async def handle_ai_message(
         )
 
     # Contextualizar a mensagem para o Gemini
-    context_text = f"[Remetente: @{sender['username']} (id: {sender['id']})] {text}"
+    from datetime import datetime
+    hoje_str = datetime.now().strftime("%Y-%m-%d")
+    context_text = f"[Data atual: {hoje_str}] [Remetente: @{sender['username']} (id: {sender['id']})] {text}"
     
     contents = [context_text]
     if media_bytes and media_mime:
@@ -237,12 +239,9 @@ async def _execute_intent(
                 "status": "todo",
             }
             
-            # Prazos (Default = hoje + 24h)
+            # Prazos
             if params.get("due_date"):
                 insert_data["due_date"] = params["due_date"]
-            else:
-                from datetime import date, timedelta
-                insert_data["due_date"] = str(date.today() + timedelta(days=1))
                 
             r = sb.table("tasks").insert(insert_data).execute()
 
