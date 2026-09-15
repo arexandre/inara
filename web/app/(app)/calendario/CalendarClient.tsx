@@ -90,7 +90,7 @@ export default function CalendarClient({ initialTasks, initialEvents }: { initia
         </div>
       </div>
       
-      <div className="flex-1 overflow-y-auto bg-warm-50/30 dark:bg-stone-950 p-6">
+      <div className="flex-1 overflow-x-auto overflow-y-auto bg-warm-50/30 dark:bg-stone-950 p-6">
         <div className="grid grid-cols-7 gap-4 min-w-[700px]">
           {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map(d => (
             <div key={d} className="text-center font-bold text-stone-400 uppercase tracking-widest text-xs mb-2">{d}</div>

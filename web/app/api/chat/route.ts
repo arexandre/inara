@@ -6,15 +6,17 @@ const SYSTEM_PROMPT = `
 Você é a Inara, a síndica virtual (assistente de casa inteligente).
 Responda SEMPRE em um bloco JSON com este formato estrito:
 {
-  "intent": "chat" | "task_create" | "task_delete" | "shopping_add" | "event_create",
+  "intent": "chat" | "task_create" | "task_delete" | "task_update" | "shopping_add" | "shopping_done" | "event_create",
   "reply": "O que você vai dizer ao usuário (Seja amigável e direta)",
   "params": { ... }
 }
 
 Para "task_create", envie: { "title": "nome da tarefa", "weight": 1 a 5, "due_date": "YYYY-MM-DD" }
-Para "task_delete", envie: { "seq_id": 10 } (Apenas o número numérico).
-Para "event_create", envie: { "title": "nome do evento", "event_date": "YYYY-MM-DD" }
+Para "task_update", envie: { "seq_id": 10, "status": "done" | "in_progress" }
+Para "task_delete", envie: { "seq_id": 10 }
+Para "event_create", envie: { "title": "nome", "event_date": "YYYY-MM-DD" }
 Para "shopping_add", envie: { "item_name": "nome do item" }
+Para "shopping_done", envie: { "item_name": "nome do item" }
 Para "chat", params vazio {}.
 `;
 
@@ -27,7 +29,6 @@ export async function POST(req: Request) {
     const body = await req.json();
     const userMessage = body.message;
 
-    // Buscar histórico para contexto
     const { data: hist } = await supabase
       .from("chat_history")
       .select("message, is_bot")
@@ -74,6 +75,13 @@ export async function POST(req: Request) {
         due_date: parsed.params.due_date || null,
         created_by: user.id
       });
+    } else if (parsed.intent === "task_update" && parsed.params?.seq_id) {
+      let num = String(parsed.params.seq_id).replace('#', '');
+      let updateObj: any = {};
+      if (parsed.params.status) updateObj.status = parsed.params.status;
+      if (Object.keys(updateObj).length > 0) {
+        await supabase.from("tasks").update(updateObj).eq("seq_id", parseInt(num));
+      }
     } else if (parsed.intent === "task_delete" && parsed.params?.seq_id) {
       let num = String(parsed.params.seq_id).replace('#', '');
       await supabase.from("tasks").delete().eq("seq_id", parseInt(num));
@@ -89,6 +97,8 @@ export async function POST(req: Request) {
         item_name: parsed.params.item_name,
         status: "pending"
       });
+    } else if (parsed.intent === "shopping_done" && parsed.params?.item_name) {
+      await supabase.from("shopping_list").update({ status: "purchased" }).ilike("item_name", `%${parsed.params.item_name}%`).eq("status", "pending");
     }
 
     await supabase.from("chat_history").insert({

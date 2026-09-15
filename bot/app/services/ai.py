@@ -394,6 +394,12 @@ async def _execute_intent(
             seq_id = params.get("seq_id")
             if not seq_id:
                 return "⚠️ Preciso do número da tarefa (ex: #0003)."
+            if isinstance(seq_id, str):
+                seq_id = seq_id.replace('#', '')
+            try:
+                seq_id = int(seq_id)
+            except:
+                pass
 
             update = {}
             if params.get("status"):
@@ -419,9 +425,13 @@ async def _execute_intent(
                     beneficiary_id = b.data["id"]
 
             tx_type = params.get("type", "collective")
+            
+            raw_amt = str(params["amount"]).replace(',', '.')
+            amt = float(raw_amt)
+            
             sb.table("transactions").insert({
                 "description": params["description"],
-                "amount": float(params["amount"]),
+                "amount": amt,
                 "type": tx_type,
                 "paid_by": sender["id"],
                 "beneficiary_id": beneficiary_id,
