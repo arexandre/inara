@@ -8,9 +8,9 @@ export async function completeTask(taskId: string) {
   revalidatePath("/");
 }
 
-export async function purchaseShoppingItem(seqId: number) {
+export async function purchaseShoppingItem(id: string) {
   const supabase = await createClient();
-  await supabase.from("shopping_list").update({ status: "purchased" }).eq("seq_id", seqId);
+  await supabase.from("shopping_list").update({ status: "purchased" }).eq("id", id);
   revalidatePath("/");
 }
 

@@ -97,7 +97,7 @@ SEMPRE responda com um JSON vÃƒÆ’Ã‚Â¡lido no seguinte formato:
 | `transaction_list` | `limit?` | Listar transaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes recentes |
 | `balance_check` | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | Ver rateio/saldo |
 | `shopping_add` | `item_name`, `quantity?`, `category?` (obrigatÃƒÆ’Ã‚Â³rio: [Mercado], [FarmÃƒÆ’Ã‚Â¡cia], [Petshop], etc.), `estimated_price?` | Adicionar item. |
-| `shopping_update`| `seq_id`, `quantity?` | Atualizar a quantidade de um item que jÃƒÆ’Ã‚Â¡ estÃƒÆ’Ã‚Â¡ na lista. |
+| `shopping_update`| `item_name`, `quantity?` | Atualizar a quantidade de um item que jÃƒÆ’Ã‚Â¡ estÃƒÆ’Ã‚Â¡ na lista. |
 | `shopping_done` | `item_name` | Marcar item como comprado |
 | `weather_check` | `city?` (default: Araguari), `timeframe?` (hoje ou amanhÃƒÆ’Ã‚Â£) | Ver previsÃƒÆ’Ã‚Â£o do tempo |
 | `chat` | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | Quando nÃƒÆ’Ã‚Â£o ÃƒÆ’Ã‚Â© um comando, apenas conversa casual |
@@ -158,8 +158,8 @@ async def _process_ai_message(
     hoje_str = datetime.now(BRT).strftime("%Y-%m-%d")
     
     # Buscar lista de compras ativa para DeduplicaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o
-    shop_res = sb.table("shopping_list").select("seq_id, item_name, quantity").eq("status", "pending").execute()
-    shop_items = [f"#{i['seq_id']} {i['item_name']} (Qtd: {i['quantity'] or 1})" for i in shop_res.data] if shop_res.data else ["Nenhum"]
+    shop_res = sb.table("shopping_list").select("item_name, quantity").eq("status", "pending").execute()
+    shop_items = [f"- {i['item_name']} (Qtd: {i['quantity'] or 1})" for i in shop_res.data] if shop_res.data else ["Nenhum"]
     shop_context = "\nLista de Compras Atual:\n" + "\n".join(shop_items)
     
     context_text = f"[Data atual: {hoje_str}] [Remetente: @{sender['username']} (id: {sender['id']})]{shop_context}\n\nMensagem: {text}"
@@ -462,13 +462,12 @@ async def _execute_intent(
             return f"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ¢â‚¬â„¢ {params['quantity'] if params.get('quantity') else 1}x {params['item_name']} adicionado ÃƒÆ’Ã‚Â  lista ({insert_data['category']})!"
             
         case "shopping_update":
-            seq_id = str(params["seq_id"]).replace("#", "")
             update_data = {}
             if params.get("quantity"):
                 update_data["quantity"] = params["quantity"]
                 
-            sb.table("shopping_list").update(update_data).eq("seq_id", seq_id).execute()
-            return f"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ¢â‚¬â„¢ Item #{seq_id} atualizado (Nova qtd: {params.get('quantity', '?')})!"
+            sb.table("shopping_list").update(update_data).eq("item_name", params["item_name"]).eq("status", "pending").execute()
+            return f"🛒 Item {params['item_name']} atualizado (Nova qtd: {params.get('quantity', '?')})!"
 
         case "shopping_list":
             r = sb.table("shopping_list").select("item_name, quantity, category").eq("status", "pending").execute()
@@ -528,6 +527,12 @@ async def start_ai_worker():
                 
         except Exception as e:
             logger.error("Erro fatal no AI Worker: %s", e)
+            if chat_id:
+                try:
+                    from app.services.telegram import send_message
+                    await send_message(chat_id, "🚨 Desculpe, ocorreu um erro fatal no sistema enquanto eu tentava processar sua mensagem. Tente novamente mais tarde!")
+                except Exception as inner_e:
+                    logger.error("Falha ao enviar mensagem de erro: %s", inner_e)
         finally:
             ai_queue.task_done()
 
