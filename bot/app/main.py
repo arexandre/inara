@@ -19,16 +19,14 @@ from app.routers import webhook
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("inara")
+from app.logger import logger
+from app.services.scheduler import start_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Inara Bot iniciado ✨")
+    logger.info("Inara Bot iniciado 🚀")
+    start_scheduler()
     yield
     logger.info("Inara Bot encerrado.")
 

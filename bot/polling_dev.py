@@ -24,6 +24,7 @@ load_dotenv()
 from app.logger import logger
 from app.services.fast_track import handle_fast_track
 from app.services.telegram import send_message
+from app.services.scheduler import start_scheduler
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 API_BASE = f"https://api.telegram.org/bot{TOKEN}"
@@ -90,6 +91,7 @@ async def process_message(message: dict) -> None:
 
 async def poll_updates() -> None:
     """Loop principal de long-polling."""
+    start_scheduler()
     offset = 0
     logger.info("Inara Bot iniciado em modo polling! Aguardando mensagens...")
     logger.info("Envie /start para @home_inara_bot no Telegram")
