@@ -27,7 +27,7 @@ const config: Config = {
           200: '#d1d8c2',
           300: '#b2c09c',
           400: '#94a578',
-          500: '#798b5b', // Sálvia
+          500: '#798b5b', // SÃ¡lvia
           600: '#5e6e45',
           700: '#485536',
           800: '#39432c',
@@ -46,7 +46,7 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["var(--font-quicksand)", "sans-serif"],
+        sans: ["var(--font-gabarito)", "sans-serif"],
         display: ["var(--font-fraunces)", "serif"],
       },
       borderRadius: {

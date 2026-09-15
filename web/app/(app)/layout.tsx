@@ -1,13 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Fraunces, Quicksand } from "next/font/google";
-import "./globals.css";
+import { Fraunces, Gabarito } from "next/font/google";
+import "../globals.css";
 import RealtimeListener from "@/components/RealtimeListener";
 import XpBadge from "@/components/XpBadge";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
-const quicksand = Quicksand({ subsets: ["latin"], variable: "--font-quicksand" });
+const gabarito = Gabarito({ subsets: ["latin"], variable: "--font-gabarito" });
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Início",    emoji: "🏠" },
@@ -34,7 +34,7 @@ export default async function AppLayout({
     .single();
 
   return (
-    <html lang="pt-BR" className={`${fraunces.variable} ${quicksand.variable}`}>
+    <html lang="pt-BR" className={`${fraunces.variable} ${gabarito.variable}`}>
       <body className="font-sans bg-warm-50 text-stone-800 antialiased selection:bg-brand-200">
         <RealtimeListener />
         <div className="flex min-h-dvh">
