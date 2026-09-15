@@ -1,9 +1,3 @@
-/**
- * Tipos TypeScript derivados do schema do Supabase (Inara).
- * Recomendado: gerar automaticamente via `supabase gen types typescript`
- * e substituir este arquivo pelo output gerado.
- */
-
 export type TaskStatus = "backlog" | "todo" | "in_progress" | "done";
 export type TransactionType = "collective" | "individual";
 export type ShoppingItemStatus = "pending" | "purchased";
@@ -14,7 +8,9 @@ export interface Profile {
   username: string;
   avatar_url: string | null;
   telegram_id: number | null;
-  xp_total: number;
+  is_admin: boolean;
+  theme_preference: string;
+  personal_context: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -27,7 +23,7 @@ export interface Task {
   status: TaskStatus;
   assignee_id: string | null;
   created_by: string;
-  xp_reward: number;
+  weight: number;
   due_date: string | null;
   completed_at: string | null;
   created_at: string;
@@ -63,7 +59,26 @@ export interface ShoppingItem {
   updated_at: string;
 }
 
-// Tipo genérico do banco para uso com o cliente tipado
+export interface Event {
+  id: string;
+  title: string;
+  description: string | null;
+  event_date: string;
+  event_time: string | null;
+  is_all_day: boolean;
+  type: "event" | "holiday";
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface SystemSettings {
+  id: number;
+  idle_time_min: number;
+  house_address: string | null;
+  house_rules: string | null;
+  updated_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -71,6 +86,8 @@ export interface Database {
       tasks: { Row: Task; Insert: Omit<Task, "id" | "seq_id" | "created_at" | "updated_at">; Update: Partial<Task> };
       transactions: { Row: Transaction; Insert: Omit<Transaction, "id" | "created_at" | "updated_at">; Update: Partial<Transaction> };
       shopping_list: { Row: ShoppingItem; Insert: Omit<ShoppingItem, "id" | "created_at" | "updated_at">; Update: Partial<ShoppingItem> };
+      events: { Row: Event; Insert: Omit<Event, "id" | "created_at">; Update: Partial<Event> };
+      system_settings: { Row: SystemSettings; Insert: Omit<SystemSettings, "updated_at">; Update: Partial<SystemSettings> };
     };
     Views: {
       balance_summary: {
@@ -82,15 +99,6 @@ export interface Database {
           balance: number;
         };
       };
-    };
-    Functions: {
-      is_resident: { Args: Record<never, never>; Returns: boolean };
-      task_code: { Args: { seq: number }; Returns: string };
-    };
-    Enums: {
-      task_status: TaskStatus;
-      transaction_type: TransactionType;
-      shopping_item_status: ShoppingItemStatus;
     };
   };
 }

@@ -436,7 +436,7 @@ async def _execute_intent(
                 "paid_by": sender["id"],
                 "beneficiary_id": beneficiary_id,
                 "category": params.get("category"),
-                "transaction_date": str(date.today()),
+                "transaction_date": hoje_str,
             }).execute()
 
             amount_fmt = f"R$ {float(params['amount']):.2f}"

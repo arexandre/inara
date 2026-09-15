@@ -6,7 +6,7 @@ const SYSTEM_PROMPT = `
 Você é a Inara, a síndica virtual (assistente de casa inteligente).
 Responda SEMPRE em um bloco JSON com este formato estrito:
 {
-  "intent": "chat" | "task_create" | "task_delete" | "task_update" | "shopping_add" | "shopping_done" | "event_create",
+  "intent": "chat" | "task_create" | "task_update" | "task_delete" | "shopping_add" | "shopping_update" | "shopping_done" | "event_create" | "transaction_create" | "transaction_list" | "balance_check" | "weather_check",
   "reply": "O que você vai dizer ao usuário (Seja amigável e direta)",
   "params": { ... }
 }
@@ -16,8 +16,10 @@ Para "task_update", envie: { "seq_id": 10, "status": "done" | "in_progress" }
 Para "task_delete", envie: { "seq_id": 10 }
 Para "event_create", envie: { "title": "nome", "event_date": "YYYY-MM-DD" }
 Para "shopping_add", envie: { "item_name": "nome do item" }
+Para "shopping_update", envie: { "item_name": "nome do item", "quantity": "..." }
 Para "shopping_done", envie: { "item_name": "nome do item" }
-Para "chat", params vazio {}.
+Para "transaction_create", envie: { "description": "desc", "amount": 10.50, "type": "collective" | "individual" }
+Para "chat", "transaction_list", "balance_check", "weather_check", params pode ser vazio.
 `;
 
 export async function POST(req: Request) {
@@ -67,6 +69,7 @@ export async function POST(req: Request) {
       parsed = { intent: "chat", reply: "Deu um curto-circuito nos meus neurônios de IA. Tente de novo!" };
     }
 
+    // Executores de Ação
     if (parsed.intent === "task_create" && parsed.params?.title) {
       await supabase.from("tasks").insert({
         title: parsed.params.title,
@@ -95,10 +98,25 @@ export async function POST(req: Request) {
     } else if (parsed.intent === "shopping_add" && parsed.params?.item_name) {
       await supabase.from("shopping_list").insert({
         item_name: parsed.params.item_name,
-        status: "pending"
+        quantity: parsed.params.quantity || "1",
+        status: "pending",
+        added_by: user.id
       });
+    } else if (parsed.intent === "shopping_update" && parsed.params?.item_name) {
+      if (parsed.params.quantity) {
+        await supabase.from("shopping_list").update({ quantity: parsed.params.quantity }).ilike("item_name", `%${parsed.params.item_name}%`).eq("status", "pending");
+      }
     } else if (parsed.intent === "shopping_done" && parsed.params?.item_name) {
-      await supabase.from("shopping_list").update({ status: "purchased" }).ilike("item_name", `%${parsed.params.item_name}%`).eq("status", "pending");
+      await supabase.from("shopping_list").update({ status: "purchased", purchased_by: user.id }).ilike("item_name", `%${parsed.params.item_name}%`).eq("status", "pending");
+    } else if (parsed.intent === "transaction_create" && parsed.params?.amount) {
+      const amtStr = String(parsed.params.amount).replace(',', '.');
+      await supabase.from("transactions").insert({
+        description: parsed.params.description || "Gasto",
+        amount: parseFloat(amtStr),
+        type: parsed.params.type || "collective",
+        paid_by: user.id,
+        transaction_date: tzDateStr
+      });
     }
 
     await supabase.from("chat_history").insert({
