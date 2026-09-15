@@ -97,10 +97,12 @@ SEMPRE responda com um JSON válido no seguinte formato:
 | `shopping_add` | `item_name`, `quantity?`, `category?`, `estimated_price?` | Adicionar item à lista |
 | `shopping_list` | — | Ver lista de compras |
 | `shopping_done` | `item_name` | Marcar item como comprado |
+| `weather_check` | `city?` (default: São Paulo), `timeframe?` (hoje ou amanhã) | Ver previsão do tempo |
 | `chat` | — | Quando não é um comando, apenas conversa casual |
 
 ### Exemplos de Interpretação:
 - "Comprei 3kg de frango por 45 reais" → transaction_create (collective, alimentação)
+- "Vai chover amanhã?" → weather_check (timeframe=amanhã)
 - "Adiciona papel higiênico na lista" → shopping_add
 - "Fiz um pix de 50 pro João" → transaction_create (individual, beneficiary=João)
 - "Cria uma tarefa pra limpar o banheiro" → task_create
@@ -338,6 +340,13 @@ async def _execute_intent(
             if r.data:
                 return f"✅ *{r.data[0]['item_name']}* marcado como comprado!"
             return f"⚠️ Não encontrei '{item_name}' na lista."
+
+        # ── CLIMA ───────────────────────────────────────────────────
+        case "weather_check":
+            from app.services.weather import get_weather
+            city = params.get("city", "São Paulo")
+            timeframe = params.get("timeframe", "hoje")
+            return await get_weather(city, timeframe)
 
         # ── CONVERSA ────────────────────────────────────────────────
         case "chat":
