@@ -34,7 +34,7 @@ def _get_model():
     
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
     return genai.GenerativeModel(
-        model_name="gemini-3.8-flash",
+        model_name="gemini-3.5-flash-lite",
         system_instruction=dynamic_sys_prompt,
         generation_config=genai.GenerationConfig(
             response_mime_type="application/json",
@@ -190,7 +190,7 @@ async def _process_ai_message(
                     if attempt == MAX_RETRIES - 1:
                         return "ðŸ¥µ Gente, o Google me botou de castigo (limite de uso)! Espera uns minutinhos e tenta de novo, por favor?"
                     await asyncio.sleep(5 * (attempt + 1))
-                elif "timeout" in err_str or "connection" in err_str:
+                elif "timeout" in err_str or "connection" in err_str or "504" in err_str or "deadline" in err_str:
                     logger.warning(f"Timeout Gemini. Tentativa {attempt+1}/{MAX_RETRIES}.")
                     if attempt == MAX_RETRIES - 1:
                         return "ðŸ”Œ Minha conexÃ£o com o cÃ©rebro (Google) falhou... Me dÃ¡ 1 minutinho e repete?"
@@ -207,7 +207,7 @@ async def _process_ai_message(
             
             if tokens > 0:
                 sb.table("api_usage_logs").insert({
-                    "service_name": "gemini-3.8-flash",
+                    "service_name": "gemini-3.5-flash-lite",
                     "tokens_used": tokens
                 }).execute()
         except Exception as e:
