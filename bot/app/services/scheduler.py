@@ -57,7 +57,7 @@ async def ping_de_ociosidade():
             logger.info("Ociosidade detectada (>30m). Gerando Ping de Quebra-Gelo...")
             
             genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-            model = genai.GenerativeModel("gemini-3.8-flash")
+            model = genai.GenerativeModel("gemini-3.5-flash-lite")
             
             prompt = (
                 f"Data atual: {now.strftime('%d/%m/%Y')}."
@@ -86,7 +86,7 @@ async def resumo_matinal():
         # 2. Tarefas
         sb = await get_supabase()
         hoje_iso = now.strftime("%Y-%m-%d")
-        t_res = await sb.table("tasks").select("title, due_date, status, profiles(username)").neq("status", "done").execute()
+        t_res = await sb.table("tasks").select("title, due_date, status, profiles!tasks_assignee_id_fkey(username)").neq("status", "done").execute()
         
         tarefas_text = "Nenhuma tarefa urgente."
         if t_res.data:
@@ -100,7 +100,7 @@ async def resumo_matinal():
         
         # 3. LLM Formatter
         genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        model = genai.GenerativeModel("gemini-3.8-flash")
+        model = genai.GenerativeModel("gemini-3.5-flash-lite")
         
         prompt = (
             f"Hoje é {now.strftime('%d/%m/%Y')}. Escreva um 'Bom dia' acolhedor e levemente irônico para os moradores.\n"
