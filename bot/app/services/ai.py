@@ -96,15 +96,16 @@ SEMPRE responda com um JSON válido no seguinte formato:
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
 | `transaction_list` | `limit?` | Listar transações recentes |
 | `balance_check` | — | Ver rateio/saldo |
-| `shopping_add` | `item_name`, `quantity?`, `category?`, `estimated_price?` | Adicionar item à lista |
-| `shopping_list` | — | Ver lista de compras |
+| `shopping_add` | `item_name`, `quantity?`, `category?` (obrigatório: [Mercado], [Farmácia], [Petshop], etc.), `estimated_price?` | Adicionar item. |
+| `shopping_update`| `seq_id`, `quantity?` | Atualizar a quantidade de um item que já está na lista. |
 | `shopping_done` | `item_name` | Marcar item como comprado |
 | `weather_check` | `city?` (default: Araguari), `timeframe?` (hoje ou amanhã) | Ver previsão do tempo |
 | `chat` | — | Quando não é um comando, apenas conversa casual |
 
-### Lidar com Mídias (Fotos e Áudio):
-- **Áudio**: O usuário enviará áudios curtos. O conteúdo transcrito está na sua entrada. Processe normalmente extraindo as intenções (criar tarefa, registrar despesa, etc.).
-- **Fotos (Notas Fiscais)**: Se o usuário enviar uma foto de nota fiscal de mercado ou padaria, extraia o **valor total** e registre como `transaction_create` (type = collective, category = alimentação). Se houver itens descritos que importam, mencione no campo `reply`.
+### Lidar com Mídias (Fotos e Áudio) - RESILIÊNCIA MÁXIMA:
+- **Áudio**: O usuário envia áudios caóticos com ruído conversacional (ex: "Oi Inara, ehh..."). **IGNORE o ruído e as saudações**. Vá direto ao ponto e extraia APENAS as intenções concretas. Seja estrito na formação do JSON.
+- **Fotos (Notas Fiscais)**: Se enviar foto, o pagador (`paid_by`) é SEMPRE o Remetente da mensagem. Se o usuário falar na legenda algo como "O chocolate é só meu", separe a nota: crie múltiplos `transaction_create` (um `type=individual` para o chocolate com `beneficiary_username` igual ao remetente, e outro `type=collective` para o resto).
+- **Lista de Compras (Deduplicação)**: Se o usuário pedir para adicionar um item que JÁ CONSTA na "Lista de Compras Atual" informada no contexto, NÃO crie um novo. Use `shopping_update` somando as quantidades. Tagueie obrigatoriamente a `category` (ex: Mercado, Farmácia).
 
 ### Exemplos de Interpretação:
 - "Comprei 3kg de frango por 45 reais" → transaction_create (collective, alimentação)
@@ -153,8 +154,15 @@ async def handle_ai_message(
 
     # Contextualizar a mensagem para o Gemini
     from datetime import datetime
-    hoje_str = datetime.now().strftime("%Y-%m-%d")
-    context_text = f"[Data atual: {hoje_str}] [Remetente: @{sender['username']} (id: {sender['id']})] {text}"
+    from app.logger import BRT
+    hoje_str = datetime.now(BRT).strftime("%Y-%m-%d")
+    
+    # Buscar lista de compras ativa para Deduplicação
+    shop_res = sb.table("shopping_list").select("seq_id, item_name, quantity").eq("status", "pending").execute()
+    shop_items = [f"#{i['seq_id']} {i['item_name']} (Qtd: {i['quantity'] or 1})" for i in shop_res.data] if shop_res.data else ["Nenhum"]
+    shop_context = "\nLista de Compras Atual:\n" + "\n".join(shop_items)
+    
+    context_text = f"[Data atual: {hoje_str}] [Remetente: @{sender['username']} (id: {sender['id']})]{shop_context}\n\nMensagem: {text}"
     
     contents = [context_text]
     if media_bytes and media_mime:
@@ -419,14 +427,25 @@ async def _execute_intent(
 
         # ── LISTA DE COMPRAS ────────────────────────────────────────
         case "shopping_add":
-            sb.table("shopping_list").insert({
+            insert_data = {
                 "item_name": params["item_name"],
-                "quantity": params.get("quantity", "1"),
-                "category": params.get("category"),
+                "quantity": params.get("quantity", 1),
+                "category": params.get("category", "Geral"),
                 "estimated_price": params.get("estimated_price"),
                 "added_by": sender["id"],
-            }).execute()
-            return f"🛒 *{params['item_name']}* adicionado à lista!"
+                "status": "pending",
+            }
+            sb.table("shopping_list").insert(insert_data).execute()
+            return f"🛒 {params['quantity'] if params.get('quantity') else 1}x {params['item_name']} adicionado à lista ({insert_data['category']})!"
+            
+        case "shopping_update":
+            seq_id = str(params["seq_id"]).replace("#", "")
+            update_data = {}
+            if params.get("quantity"):
+                update_data["quantity"] = params["quantity"]
+                
+            sb.table("shopping_list").update(update_data).eq("seq_id", seq_id).execute()
+            return f"🛒 Item #{seq_id} atualizado (Nova qtd: {params.get('quantity', '?')})!"
 
         case "shopping_list":
             r = sb.table("shopping_list").select("item_name, quantity, category").eq("status", "pending").execute()

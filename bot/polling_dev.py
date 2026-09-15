@@ -29,12 +29,13 @@ TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 API_BASE = f"https://api.telegram.org/bot{TOKEN}"
 
 FAST_TRACK_COMMANDS = {
-    "/start": "_cmd_start",
-    "/lista": "_cmd_lista",
-    "/pix": "_cmd_pix",
-    "/tarefas": "_cmd_tarefas",
-    "/ajuda": "_cmd_ajuda",
-    "/help": "_cmd_ajuda",
+    "/start":    "_cmd_start",
+    "/lista":    "_cmd_lista",
+    "/pix":      "_cmd_pix",
+    "/tarefas":  "_cmd_tarefas",
+    "/mercado":  "_cmd_mercado",
+    "/ajuda":    "_cmd_ajuda",
+    "/help":     "_cmd_ajuda",
 }
 
 

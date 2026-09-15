@@ -27,6 +27,7 @@ FAST_TRACK_COMMANDS = {
     "/lista":    "_cmd_lista",
     "/pix":      "_cmd_pix",
     "/tarefas":  "_cmd_tarefas",
+    "/mercado":  "_cmd_mercado",
     "/ajuda":    "_cmd_ajuda",
     "/help":     "_cmd_ajuda",
 }

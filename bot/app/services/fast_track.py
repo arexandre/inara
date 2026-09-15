@@ -4,6 +4,7 @@ Fast Track — Handlers locais de comandos Telegram.
 
 import logging
 import os
+from datetime import datetime
 
 from supabase import AsyncClient, acreate_client
 
@@ -35,6 +36,7 @@ async def handle_fast_track(handler_name: str, args: str, chat_id: int) -> str:
         "_cmd_lista":   _cmd_lista,
         "_cmd_pix":     _cmd_pix,
         "_cmd_tarefas": _cmd_tarefas,
+        "_cmd_mercado": _cmd_mercado,
         "_cmd_ajuda":   _cmd_ajuda,
     }
     handler = handlers.get(handler_name)
@@ -92,6 +94,40 @@ async def _cmd_lista(args: str, chat_id: int) -> str:
         lines.append(f"• {item['item_name']} — {qty}{cat}")
     lines.append(f"\n_{len(items)} item(ns) pendente(s)_")
     return "\n".join(lines)
+
+
+MERCADO_COOLDOWNS: dict[int, datetime] = {}
+
+async def _cmd_mercado(args: str, chat_id: int) -> str:
+    sender = await get_sender(chat_id)
+    if not sender:
+        return "❌ Acesso Negado."
+        
+    from datetime import datetime, timedelta
+    from app.logger import BRT
+    now = datetime.now(BRT)
+    
+    # Cooldown check (2 hours)
+    if chat_id in MERCADO_COOLDOWNS:
+        last_time = MERCADO_COOLDOWNS[chat_id]
+        if (now - last_time).total_seconds() < 7200:
+            # Drop silently or minimal response to avoid spam
+            return ""
+
+    MERCADO_COOLDOWNS[chat_id] = now
+    
+    sb = await get_supabase()
+    r = await sb.table("shopping_list").select("seq_id, item_name, quantity, category").eq("status", "pending").execute()
+    
+    if not r.data:
+        return "🛒 Não há itens pendentes na lista de compras no momento."
+        
+    lines = ["🛒 **Lista de Compras (Modo Mercado Ativado!)**"]
+    # Group by category if we want, or just list
+    for i in r.data:
+        lines.append(f"• {i['quantity'] or 1}x {i['item_name']} (Cat: {i.get('category') or 'Geral'}) #{i['seq_id']}")
+    return "\n".join(lines)
+
 
 async def _cmd_pix(args: str, chat_id: int) -> str:
     parts = args.split()

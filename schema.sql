@@ -1,5 +1,5 @@
 -- ============================================================
---  INARA — Schema do Banco de Dados (Supabase / PostgreSQL)
+--  INARA â€” Schema do Banco de Dados (Supabase / PostgreSQL)
 --  Execute este script no SQL Editor do Supabase Dashboard.
 -- ============================================================
 
@@ -13,7 +13,7 @@ CREATE TYPE shopping_item_status AS ENUM ('pending', 'purchased');
 -- ============================================================
 -- TABELA: profiles
 -- Vinculada ao auth.users do Supabase.
--- Máximo de 3 moradores (enforced via trigger).
+-- MÃ¡ximo de 3 moradores (enforced via trigger).
 -- ============================================================
 CREATE TABLE public.profiles (
   id          UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -21,17 +21,17 @@ CREATE TABLE public.profiles (
   username    TEXT UNIQUE NOT NULL,
   avatar_url  TEXT,
   telegram_id BIGINT UNIQUE,              -- Chat ID do Telegram para roteamento
-  xp_total    INTEGER NOT NULL DEFAULT 0, -- Pontuação acumulada
+  xp_total    INTEGER NOT NULL DEFAULT 0, -- PontuaÃ§Ã£o acumulada
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Trigger: garantir máximo de 3 perfis (allowlist de moradores)
+-- Trigger: garantir mÃ¡ximo de 3 perfis (allowlist de moradores)
 CREATE OR REPLACE FUNCTION enforce_max_profiles()
 RETURNS TRIGGER AS $$
 BEGIN
   IF (SELECT COUNT(*) FROM public.profiles) >= 3 THEN
-    RAISE EXCEPTION 'Limite máximo de 3 moradores atingido.';
+    RAISE EXCEPTION 'Limite mÃ¡ximo de 3 moradores atingido.';
   END IF;
   RETURN NEW;
 END;
@@ -55,7 +55,7 @@ CREATE TRIGGER trg_profiles_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
--- SEQUÊNCIA + TABELA: tasks
+-- SEQUÃŠNCIA + TABELA: tasks
 -- Kanban com ID sequencial formatado (#0001, #0002, ...)
 -- ============================================================
 CREATE SEQUENCE task_seq START 1 INCREMENT 1;
@@ -63,7 +63,7 @@ CREATE SEQUENCE task_seq START 1 INCREMENT 1;
 CREATE TABLE public.tasks (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   seq_id        INTEGER NOT NULL DEFAULT nextval('task_seq') UNIQUE,
-  -- Ex: #0001 gerado via função helper; seq_id é o número
+  -- Ex: #0001 gerado via funÃ§Ã£o helper; seq_id Ã© o nÃºmero
   title         TEXT NOT NULL,
   description   TEXT,
   status        task_status NOT NULL DEFAULT 'backlog',
@@ -88,7 +88,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   IF NEW.status = 'done' AND OLD.status <> 'done' THEN
     NEW.completed_at = NOW();
-    -- Conceder XP ao responsável
+    -- Conceder XP ao responsÃ¡vel
     IF NEW.assignee_id IS NOT NULL THEN
       UPDATE public.profiles
         SET xp_total = xp_total + NEW.xp_reward
@@ -119,10 +119,10 @@ CREATE TABLE public.transactions (
   amount        NUMERIC(10, 2) NOT NULL CHECK (amount > 0),
   type          transaction_type NOT NULL DEFAULT 'collective',
   paid_by       UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
-  -- Para gastos individuais: beneficiário específico
+  -- Para gastos individuais: beneficiÃ¡rio especÃ­fico
   beneficiary_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   -- Para gastos coletivos: rateio calculado e armazenado via view
-  category      TEXT,                          -- ex: 'alimentação', 'moradia'
+  category      TEXT,                          -- ex: 'alimentaÃ§Ã£o', 'moradia'
   receipt_url   TEXT,                          -- URL de comprovante (Supabase Storage)
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -130,7 +130,7 @@ CREATE TABLE public.transactions (
 );
 
 -- View: saldo e rateio por morador (apenas gastos coletivos)
--- SECURITY INVOKER garante que a view respeita RLS do usuário que consulta
+-- SECURITY INVOKER garante que a view respeita RLS do usuÃ¡rio que consulta
 CREATE OR REPLACE VIEW public.balance_summary
 WITH (security_invoker = on) AS
 WITH collective_total AS (
@@ -138,22 +138,40 @@ WITH collective_total AS (
   FROM public.transactions
   WHERE type = 'collective'
 ),
-paid_per_person AS (
+collective_paid AS (
   SELECT paid_by, SUM(amount) AS total_paid
   FROM public.transactions
   WHERE type = 'collective'
   GROUP BY paid_by
+),
+individual_paid_for_others AS (
+  SELECT paid_by, SUM(amount) AS total
+  FROM public.transactions
+  WHERE type = 'individual' AND beneficiary_id IS NOT NULL AND beneficiary_id != paid_by
+  GROUP BY paid_by
+),
+individual_borrowed AS (
+  SELECT beneficiary_id, SUM(amount) AS total
+  FROM public.transactions
+  WHERE type = 'individual' AND beneficiary_id IS NOT NULL AND beneficiary_id != paid_by
+  GROUP BY beneficiary_id
 )
 SELECT
   p.id,
   p.username,
-  COALESCE(pp.total_paid, 0)                              AS total_paid,
+  COALESCE(cp.total_paid, 0) AS total_paid,
   (ct.total / NULLIF((SELECT COUNT(*) FROM public.profiles), 0)) AS fair_share,
-  COALESCE(pp.total_paid, 0) -
-    (ct.total / NULLIF((SELECT COUNT(*) FROM public.profiles), 0)) AS balance
+  (
+    COALESCE(cp.total_paid, 0) 
+    - (ct.total / NULLIF((SELECT COUNT(*) FROM public.profiles), 0))
+    + COALESCE(ipo.total, 0)
+    - COALESCE(ib.total, 0)
+  ) AS balance
 FROM public.profiles p
 CROSS JOIN collective_total ct
-LEFT JOIN paid_per_person pp ON pp.paid_by = p.id;
+LEFT JOIN collective_paid cp ON cp.paid_by = p.id
+LEFT JOIN individual_paid_for_others ipo ON ipo.paid_by = p.id
+LEFT JOIN individual_borrowed ib ON ib.beneficiary_id = p.id;
 
 CREATE TRIGGER trg_transactions_updated_at
   BEFORE UPDATE ON public.transactions
@@ -161,7 +179,7 @@ CREATE TRIGGER trg_transactions_updated_at
 
 -- ============================================================
 -- TABELA: shopping_list
--- Lista de compras dinâmica compartilhada
+-- Lista de compras dinÃ¢mica compartilhada
 -- ============================================================
 CREATE TABLE public.shopping_list (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -201,7 +219,7 @@ CREATE TRIGGER trg_shopping_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
--- ROW LEVEL SECURITY (RLS) — Zero-Trust
+-- ROW LEVEL SECURITY (RLS) â€” Zero-Trust
 -- ============================================================
 
 -- Habilitar RLS em todas as tabelas
@@ -210,7 +228,7 @@ ALTER TABLE public.tasks          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transactions   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shopping_list  ENABLE ROW LEVEL SECURITY;
 
--- Helper: verifica se o usuário da sessão é um morador cadastrado
+-- Helper: verifica se o usuÃ¡rio da sessÃ£o Ã© um morador cadastrado
 CREATE OR REPLACE FUNCTION is_resident()
 RETURNS BOOLEAN AS $$
   SELECT EXISTS (
@@ -219,12 +237,12 @@ RETURNS BOOLEAN AS $$
 $$ LANGUAGE SQL SECURITY DEFINER STABLE;
 
 -- --- profiles ---
--- Moradores veem todos os perfis (necessário para exibir responsáveis, etc.)
+-- Moradores veem todos os perfis (necessÃ¡rio para exibir responsÃ¡veis, etc.)
 CREATE POLICY "residents_select_profiles"
   ON public.profiles FOR SELECT
   USING (is_resident());
 
--- Cada morador edita apenas o próprio perfil
+-- Cada morador edita apenas o prÃ³prio perfil
 CREATE POLICY "own_profile_update"
   ON public.profiles FOR UPDATE
   USING (id = auth.uid());
@@ -245,7 +263,7 @@ CREATE POLICY "residents_insert_tasks"
   ON public.tasks FOR INSERT
   WITH CHECK (is_resident() AND created_by = auth.uid());
 
--- Apenas criador ou responsável pode atualizar
+-- Apenas criador ou responsÃ¡vel pode atualizar
 CREATE POLICY "task_owner_update"
   ON public.tasks FOR UPDATE
   USING (is_resident() AND (created_by = auth.uid() OR assignee_id = auth.uid()));
@@ -256,12 +274,12 @@ CREATE POLICY "task_creator_delete"
   USING (created_by = auth.uid());
 
 -- --- transactions ---
--- Moradores veem todas as transações (transparência financeira)
+-- Moradores veem todas as transaÃ§Ãµes (transparÃªncia financeira)
 CREATE POLICY "residents_select_transactions"
   ON public.transactions FOR SELECT
   USING (is_resident());
 
--- Moradores registram transações como pagador
+-- Moradores registram transaÃ§Ãµes como pagador
 CREATE POLICY "residents_insert_transactions"
   ON public.transactions FOR INSERT
   WITH CHECK (is_resident() AND paid_by = auth.uid());
@@ -297,13 +315,13 @@ CREATE POLICY "adder_delete_shopping"
   USING (added_by = auth.uid());
 
 -- ============================================================
--- REALTIME (opcional — habilitar no Supabase Dashboard)
+-- REALTIME (opcional â€” habilitar no Supabase Dashboard)
 -- ============================================================
 -- ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
 -- ALTER PUBLICATION supabase_realtime ADD TABLE public.shopping_list;
 
 -- ============================================================
--- TABELA: chat_history (Armazena o hist�rico do bot)
+-- TABELA: chat_history (Armazena o histórico do bot)
 -- ============================================================
 CREATE TABLE public.chat_history (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
