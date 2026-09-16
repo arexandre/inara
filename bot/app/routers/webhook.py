@@ -126,14 +126,12 @@ async def telegram_webhook(
             await send_message(chat_id, reply)
         return {"status": "fast_track", "command": base_command}
 
-    # Ã¢â€â‚¬Ã¢â€â‚¬ 5. LLM (Gemini) Ã¢â‚¬â€ processamento de linguagem natural Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    # Ã¢â€ â‚¬Ã¢â€ â‚¬ 5. LLM (Gemini) Ã¢â€ â‚¬Ã¢â€ â‚¬ processamento de linguagem natural Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬Ã¢â€ â‚¬
     logger.info("LLM route: chat_id=%s, text=%r, media=%s", chat_id, text[:60], media_mime)
     try:
         from app.services.ai import handle_ai_message
-        reply = await handle_ai_message(text, chat_id, media_bytes, media_mime)
+        await handle_ai_message(text, chat_id, media_bytes, media_mime)
     except Exception as exc:
         logger.exception("Erro no handler de IA: %s", exc)
-        reply = "Ã¢Å¡Â Ã¯Â¸Â Ocorreu um erro ao processar sua mensagem. Tente novamente."
-    if reply:
-            await send_message(chat_id, reply)
+        await send_message(chat_id, "Ocorreu um erro ao processar sua mensagem. Tente novamente.")
     return {"status": "llm_processed"}

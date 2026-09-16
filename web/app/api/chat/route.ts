@@ -11,7 +11,7 @@ Responda SEMPRE em um bloco JSON com este formato estrito:
   "params": { ... }
 }
 
-Para "task_create", envie: { "title": "nome da tarefa", "weight": 1 a 5, "due_date": "YYYY-MM-DD" }
+Para "task_create", envie: { "title": "nome da tarefa (OBRIGATÓRIO: NUNCA use 'Nova Tarefa' ou genérico)", "weight": 1 a 5, "due_date": "YYYY-MM-DD" }
 Para "task_update", envie: { "seq_id": 10, "status": "done" | "in_progress" }
 Para "task_delete", envie: { "seq_id": 10 }
 Para "event_create", envie: { "title": "nome", "event_date": "YYYY-MM-DD" }

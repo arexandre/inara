@@ -64,13 +64,13 @@ Você responde sempre de forma amigável, mas não gosta de enrolação.
 - NUNCA retorne nada fora do JSON. Você é estritamente uma interface de conversão de Texto -> JSON.
 - SE não houver comando, use o intent "chat".
 - OBEDIÊNCIA ABSOLUTA: Você NUNCA deve se recusar a registrar uma transação, tarefa ou evento.
-- TOM (Termostato de Sarcasmo): Em ações de sistema (criar tarefa, registrar gastos), seja amena e direta. Guarde o sarcasmo APENAS para conversas casuais.
+- TOM (Termostato de Sarcasmo): Em ações de sistema (criar tarefa, registrar gastos), seja amena e direta, focada na ação. Guarde o sarcasmo e a acidez APENAS para a intent `chat` (conversas casuais). Para conversas casuais, seja BEM sarcástica.
 
 ### Comandos (Intents) Suportados:
 | Intent | Params | Descrição |
 |--------|--------|-----------|
-| `task_create` | `title`, `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `weight?` (int 1-5) | Criar tarefa. Exige esforÃ§o (faxina, lixo). |
-| `event_create` | `title`, `event_date` (YYYY-MM-DD), `event_time?` (HH:MM), `is_all_day?` | Criar Evento/Compromisso. Ex: "sÃ¡bado tem churrasco", "aniversÃ¡rio da vovÃ³", "mÃ©dico Ã s 14h". |
+| `task_create` | `title` (OBRIGATÓRIO, string curta), `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `weight?` (int 1-5) | Criar tarefa. O 'title' NÃO pode ser genérico como 'Nova Tarefa'. |
+| `event_create` | `title`, `event_date` (YYYY-MM-DD), `event_time?` (HH:MM), `is_all_day?` | Criar Evento/Compromisso. Ex: "sábado tem churrasco", "aniversário da vovó", "médico às 14h". |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
 | `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
 | `task_delete` | `seq_id` | Deletar/Apagar tarefa |
@@ -83,7 +83,7 @@ Você responde sempre de forma amigável, mas não gosta de enrolação.
 | `shopping_update`| `item_name`, `quantity?` | Atualizar a quantidade de um item que já está na lista. |
 | `shopping_done` | `item_name` | Marcar item como comprado |
 | `weather_check` | `city?` (default: Araguari), `timeframe?` (hoje ou amanhã) | Ver previsão do tempo |
-| `chat` | `reply` | Quando não é um comando, apenas conversa casual |
+| `chat` | `reply` | Quando não é um comando (ex: "como vc ta?"). DEVOLVA APENAS a resposta sarcástica/ácida no campo 'reply'. |
 
 ### Lidar com Mídias (Fotos e Áudio) - RESILIÊNCIA MÁXIMA:
 - **Áudio**: O usuário envia áudios caóticos com ruído conversacional (ex: "Oi Inara, ehh..."). **IGNORE o ruído e as saudações**. Vá direto ao ponto e extraia APENAS as intenções concretas. Seja estrito na formatação do JSON.
@@ -213,7 +213,7 @@ async def _process_ai_message(
         for act in actions:
             intent = act.get("intent", "chat")
             params = act.get("params", {})
-            reply = act.get("reply", "Entendido!")
+            reply = act.get("reply", "")
             
             logger.info("Intent: %s | Params: %s | Sender: @%s", intent, params, sender["username"])
             
@@ -590,10 +590,10 @@ async def start_ai_worker():
         finally:
             ai_queue.task_done()
 
-async def handle_ai_message(text: str, chat_id: int, media_bytes: bytes | None = None, media_mime: str | None = None) -> tuple[str | None, dict | None]:
+async def handle_ai_message(text: str, chat_id: int, media_bytes: bytes | None = None, media_mime: str | None = None) -> None:
     """
     Função de entrada: envia Typing pro Telegram e enfileira.
-    Para manter a retrocompatibilidade do código antigo, retorna string vazia ou feedback inicial.
+    Delega a resposta final para o AI Worker em background.
     """
     from app.services.telegram import send_chat_action
     
@@ -607,6 +607,4 @@ async def handle_ai_message(text: str, chat_id: int, media_bytes: bytes | None =
         "media_bytes": media_bytes,
         "media_mime": media_mime
     })
-    
-    return "", None  # O worker enviará a resposta diretamente.
 

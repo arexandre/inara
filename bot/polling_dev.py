@@ -92,12 +92,10 @@ async def process_message(message: dict) -> None:
     logger.info("LLM route: chat_id=%s, text=%r, media=%s", chat_id, text[:60], media_mime)
     try:
         from app.services.ai import handle_ai_message
-        reply = await handle_ai_message(text, chat_id, media_bytes, media_mime)
+        await handle_ai_message(text, chat_id, media_bytes, media_mime)
     except Exception as exc:
         logger.exception("Erro no handler de IA: %s", exc)
-        reply = "Ocorreu um erro ao processar sua mensagem. Tente novamente."
-    if reply:
-        await send_message(chat_id, reply)
+        await send_message(chat_id, "Ocorreu um erro ao processar sua mensagem. Tente novamente.")
 
 
 async def answer_callback(callback_query_id: str) -> None:
