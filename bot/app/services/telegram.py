@@ -5,9 +5,9 @@ from app.logger import logger
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 API_BASE = f"https://api.telegram.org/bot{TOKEN}"
 
-async def send_message(chat_id: int, text: str, parse_mode: str = "Markdown") -> None:
+async def send_message(chat_id: int, text: str, parse_mode: str = "Markdown", reply_markup: dict = None) -> None:
     if not TOKEN:
-        logger.warning("TELEGRAM_BOT_TOKEN no configurado. Mensagem no enviada.")
+        logger.warning("TELEGRAM_BOT_TOKEN nao configurado.")
         return
 
     url = f"{API_BASE}/sendMessage"
@@ -16,6 +16,8 @@ async def send_message(chat_id: int, text: str, parse_mode: str = "Markdown") ->
         "text": text,
         "parse_mode": parse_mode
     }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
 
     try:
         async with httpx.AsyncClient() as client:
@@ -23,6 +25,22 @@ async def send_message(chat_id: int, text: str, parse_mode: str = "Markdown") ->
             resp.raise_for_status()
     except Exception as e:
         logger.error("Erro ao enviar mensagem pro Telegram: %s", e)
+
+async def send_poll(chat_id: int, question: str, options: list, is_anonymous: bool = False) -> None:
+    if not TOKEN:
+        return
+    url = f"{API_BASE}/sendPoll"
+    payload = {
+        "chat_id": chat_id,
+        "question": question,
+        "options": options,
+        "is_anonymous": is_anonymous
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(url, json=payload)
+    except Exception as e:
+        logger.error("Erro ao enviar poll pro Telegram: %s", e)
 
 async def send_chat_action(chat_id: int, action: str = "typing") -> None:
     if not TOKEN:

@@ -26,6 +26,7 @@ export interface Task {
   weight: number;
   due_date: string | null;
   completed_at: string | null;
+  is_archived: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -79,6 +80,19 @@ export interface SystemSettings {
   updated_at: string;
 }
 
+export interface Mural {
+  id: string;
+  message: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface DailyJournal {
+  id: string;
+  content: string;
+  created_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -88,6 +102,8 @@ export interface Database {
       shopping_list: { Row: ShoppingItem; Insert: Omit<ShoppingItem, "id" | "created_at" | "updated_at">; Update: Partial<ShoppingItem> };
       events: { Row: Event; Insert: Omit<Event, "id" | "created_at">; Update: Partial<Event> };
       system_settings: { Row: SystemSettings; Insert: Omit<SystemSettings, "updated_at">; Update: Partial<SystemSettings> };
+      mural: { Row: Mural; Insert: Omit<Mural, "id" | "created_at">; Update: Partial<Mural> };
+      daily_journal: { Row: DailyJournal; Insert: Omit<DailyJournal, "id" | "created_at">; Update: Partial<DailyJournal> };
     };
     Views: {
       balance_summary: {

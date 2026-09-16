@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { updateProfileSettings } from "@/app/actions";
+import AdminWidget from "./AdminWidget";
 
 export const metadata = { title: "Perfil e Configurações" };
 
@@ -115,6 +116,7 @@ export default async function PerfilPage() {
           Salvar Tudo
         </button>
       </form>
+      {isAdmin && <AdminWidget />}
     </main>
   );
 }

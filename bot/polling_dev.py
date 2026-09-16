@@ -93,10 +93,79 @@ async def process_message(message: dict) -> None:
                             await send_message(chat_id, reply)
 
 
+
+async def process_callback_query(callback_query: dict) -> None:
+    chat_id = callback_query["message"]["chat"]["id"]
+    data = callback_query["data"]
+    message_id = callback_query["message"]["message_id"]
+    
+    # Ex: confirm_uuid, cancel_uuid
+    if "_" not in data: return
+    action_type, action_id = data.split("_", 1)
+    
+    from app.services.fast_track import get_supabase
+    sb = await get_supabase()
+    
+    res = await sb.table("pending_actions").select("*").eq("id", action_id).execute()
+    if not res.data:
+        from app.services.telegram import send_message
+        await send_message(chat_id, "Essa ação já expirou ou foi processada.")
+        return
+        
+    action = res.data[0]
+    if action["status"] != "pending":
+        from app.services.telegram import send_message
+        await send_message(chat_id, f"Esta ação já foi resolvida (status: {action['status']}).")
+        return
+        
+    if action_type == "cancel":
+        await sb.table("pending_actions").update({"status": "rejected"}).eq("id", action_id).execute()
+        from app.services.telegram import send_message
+        await send_message(chat_id, "❌ Ação cancelada.")
+        return
+        
+    if action_type == "confirm":
+        # Executar!
+        intent = action["intent"]
+        payload = action["payload"]
+        if intent == "task_delete":
+            await sb.table("tasks").delete().eq("seq_id", int(payload["seq_id"])).execute()
+            from app.services.telegram import send_message
+            await send_message(chat_id, f"✅ Tarefa apagada com sucesso!")
+        elif intent == "transaction_create":
+            await sb.table("transactions").insert(payload).execute()
+            from app.services.telegram import send_message
+            await send_message(chat_id, f"✅ Despesa lançada no livro-caixa!")
+            
+        await sb.table("pending_actions").update({"status": "approved"}).eq("id", action_id).execute()
+
+
+async def check_system_commands():
+    logger.info("Worker de System Commands iniciado.")
+    from app.services.fast_track import get_supabase
+    sb = await get_supabase()
+    while True:
+        try:
+            res = await sb.table("system_commands").select("*").eq("executed", False).execute()
+            if res.data:
+                for cmd in res.data:
+                    await sb.table("system_commands").update({"executed": True}).eq("id", cmd["id"]).execute()
+                    
+                    if cmd["command"] == "force_bom_dia":
+                        from app.services.scheduler import resumo_matinal
+                        await resumo_matinal()
+                    elif cmd["command"] == "force_ping":
+                        from app.services.scheduler import ping_de_ociosidade
+                        await ping_de_ociosidade()
+        except Exception as e:
+            logger.error("Erro no worker de comandos: %s", e)
+        await asyncio.sleep(5)
+
 async def poll_updates() -> None:
     """Loop principal de long-polling."""
     start_scheduler()
     asyncio.create_task(start_ai_worker())
+    asyncio.create_task(check_system_commands())
     offset = 0
     logger.info("Inara Bot iniciado em modo polling! Aguardando mensagens...")
     logger.info("Envie /start para @home_inara_bot no Telegram")
@@ -117,6 +186,12 @@ async def poll_updates() -> None:
 
                 for update in data.get("result", []):
                     offset = update["update_id"] + 1
+                    if "callback_query" in update:
+                        try:
+                            await process_callback_query(update["callback_query"])
+                        except Exception:
+                            logger.exception("Erro ao processar callback")
+                    
                     message = update.get("message") or update.get("edited_message")
                     if message:
                         try:

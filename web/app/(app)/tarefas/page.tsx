@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import type { Task, TaskStatus } from "@/types/database";
-import TaskCard from "./TaskCard";
+import TasksBoard from "./TasksBoard";
 
 export const metadata = { title: "Tarefas" };
 
@@ -20,6 +20,7 @@ export default async function TarefasPage() {
   const { data: tasks = [] } = await supabase
     .from("tasks")
     .select("*, assignee:profiles!tasks_assignee_id_fkey(username)")
+    .eq("is_archived", false)
     .order("seq_id", { ascending: true });
 
   const grouped = COLUMNS.reduce((acc, col) => {

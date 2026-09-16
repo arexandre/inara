@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/compras",    label: "Compras",   emoji: "🛒" },
   { href: "/financas",   label: "Finanças",  emoji: "💸" },
   { href: "/calendario", label: "Calendário",emoji: "📅" },
+  { href: "/mural",      label: "Mural",     emoji: "📌" },
   { href: "/historico",  label: "Histórico", emoji: "📜" },
   { href: "/chat",       label: "Web Chat",  emoji: "💬" },
 ];

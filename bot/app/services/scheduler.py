@@ -103,8 +103,15 @@ async def resumo_matinal():
         now = datetime.now(BRT)
         hoje_iso = now.strftime("%Y-%m-%d")
         
-        clima = await get_weather("Araguari,BR", "hoje")
         sb = await get_supabase()
+        
+        # Auto-archive tasks feitas há mais de 3 dias
+        import datetime as dt
+        from app.logger import BRT
+        tres_dias = (dt.datetime.now(BRT) - dt.timedelta(days=3)).strftime("%Y-%m-%d")
+        await sb.table("tasks").update({"is_archived": True}).eq("status", "done").lte("completed_at", tres_dias).execute()
+        
+        clima = await get_weather("Araguari,BR", "hoje")
         
         # 1. Tarefas
         t_res = await sb.table("tasks").select("title, due_date, status, profiles!tasks_assignee_id_fkey(username)").neq("status", "done").execute()
@@ -152,6 +159,9 @@ async def resumo_matinal():
         
         response = await model.generate_content_async(prompt, request_options={"timeout": 15.0})
         reply = response.text.strip()
+        
+        # Salva no diário
+        await sb.table("daily_journal").insert({"content": reply}).execute()
         
         await broadcast_to_residents(reply)
         
