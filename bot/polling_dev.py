@@ -141,8 +141,12 @@ async def process_callback_query(callback_query: dict) -> None:
         intent = action["intent"]
         payload = action["payload"]
         if intent == "task_delete":
-            await sb.table("tasks").delete().eq("seq_id", int(payload["seq_id"])).execute()
-            await send_message(chat_id, "✅ Tarefa apagada com sucesso!")
+            seq_ids = payload.get("seq_ids")
+            if seq_ids:
+                await sb.table("tasks").delete().in_("seq_id", seq_ids).execute()
+            else:
+                await sb.table("tasks").delete().eq("seq_id", int(payload["seq_id"])).execute()
+            await send_message(chat_id, "🗑️ Tarefa(s) apagada(s) com sucesso!")
         elif intent == "transaction_create":
             await sb.table("transactions").insert(payload).execute()
             await send_message(chat_id, "✅ Despesa lançada no livro-caixa!")

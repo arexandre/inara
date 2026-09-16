@@ -59,9 +59,10 @@ Sua personalidade é acolhedora, levemente irônica, muito eficiente e pragmáti
 Você responde sempre de forma amigável, mas não gosta de enrolação.
 
 ### Regras Base:
-- O fuso horário de referência é sempre BRT (America/Sao_Paulo).
-- Você DEVE extrair as informações e gerar um JSON estruturado de Intent.
-- NUNCA retorne nada fora do JSON. Você é estritamente uma interface de conversão de Texto -> JSON.
+  - O fuso horário de referência é sempre BRT (America/Sao_Paulo).
+  - Você DEVE extrair as informações e gerar OBRIGATORIAMENTE uma LISTA DE OBJETOS JSON (um Array), mesmo que seja apenas uma ação.
+  - Exemplo: `[{"intent": "task_create", "params": {"title": "X"}}, {"intent": "shopping_add", "params": {"item_name": "Y"}}]`
+  - NUNCA retorne nada fora do Array JSON. Você é estritamente uma interface de conversão de Texto -> JSON.
 - SE não houver comando, use o intent "chat".
 - OBEDIÊNCIA ABSOLUTA: Você NUNCA deve se recusar a registrar uma transação, tarefa ou evento.
 - TOM (Termostato de Sarcasmo): Em ações de sistema (criar tarefa, registrar gastos), seja amena e direta, focada na ação. Guarde o sarcasmo e a acidez APENAS para a intent `chat` (conversas casuais). Para conversas casuais, seja BEM sarcástica.
@@ -72,8 +73,8 @@ Você responde sempre de forma amigável, mas não gosta de enrolação.
 | `task_create` | `title` (OBRIGATÓRIO, string curta), `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `due_time?` (HH:MM), `weight?` (int 1-5) | Criar tarefa. O 'title' NÃO pode ser genérico como 'Nova Tarefa'. |
 | `event_create` | `title`, `event_date` (YYYY-MM-DD), `event_time?` (HH:MM), `is_all_day?` | Criar Evento/Compromisso. Ex: "sábado tem churrasco", "aniversário da vovó", "médico às 14h". |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
-| `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `due_time?` (HH:MM) | Atualizar tarefa |
-| `task_delete` | `seq_id` | Deletar/Apagar tarefa |
+| `task_update` | `seq_id` (int ou array de ints), `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `due_time?` (HH:MM) | Atualizar tarefa(s) |
+| `task_delete` | `seq_id` (int ou array de ints) | Deletar/Apagar tarefa(s) |
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
 | `transaction_list` | `limit?` | Listar transações recentes |
 | `poll_create` | `question`, `options` (array) | Criar enquete no Telegram |
@@ -198,11 +199,29 @@ async def _process_ai_message(
         except Exception as e:
             logger.warning("Falha ao registrar log de API: %s", e)
 
-        # Parse do JSON
         import re
-        clean_raw = re.sub(r"^```(?:json)?\n?", "", raw.strip(), flags=re.IGNORECASE)
-        clean_raw = re.sub(r"\n?```$", "", clean_raw.strip(), flags=re.IGNORECASE).strip()
-        
+        raw_strip = raw.strip()
+        match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', raw_strip, re.DOTALL | re.IGNORECASE)
+        if match:
+            clean_raw = match.group(1)
+        else:
+            start_list = raw_strip.find('[')
+            start_dict = raw_strip.find('{')
+            start = start_list if start_list != -1 else start_dict
+            if start_list != -1 and start_dict != -1:
+                start = min(start_list, start_dict)
+                
+            if start != -1:
+                end_list = raw_strip.rfind(']')
+                end_dict = raw_strip.rfind('}')
+                end = end_list if end_list != -1 else end_dict
+                if end_list != -1 and end_dict != -1:
+                    end = max(end_list, end_dict)
+                
+                clean_raw = raw_strip[start:end+1]
+            else:
+                clean_raw = raw_strip
+
         result = json.loads(clean_raw)
         
         actions = result if isinstance(result, list) else [result]
@@ -405,36 +424,50 @@ async def _execute_intent(
             return "\n".join(lines), None
 
         case "task_delete":
-            seq_id = params.get("seq_id")
-            if not seq_id:
-                return "⚠️ Preciso do número da tarefa (ex: 0010).", None
-            # Lidar com IDs como #0010 ou strings
-            if isinstance(seq_id, str):
-                seq_id = seq_id.replace('#', '')
-            payload = {"seq_id": int(seq_id)}
+            seq_ids = params.get("seq_id")
+            if not seq_ids:
+                return None, None
+            if not isinstance(seq_ids, list):
+                seq_ids = [seq_ids]
+                
+            valid_ids = []
+            for sid in seq_ids:
+                try:
+                    valid_ids.append(int(str(sid).replace('#', '')))
+                except ValueError:
+                    continue
+            if not valid_ids:
+                return None, None
+                
+            payload = {"seq_ids": valid_ids}
             res = sb.table("pending_actions").insert({
                 "chat_id": chat_id, "intent": "task_delete", "payload": payload
             }).execute()
             action_id = res.data[0]["id"]
-            
             kb = {
                 "inline_keyboard": [
                     [{"text": "✅ Confirmar", "callback_data": f"confirm_{action_id}"},
                      {"text": "❌ Cancelar", "callback_data": f"cancel_{action_id}"}]
                 ]
             }
-            return f"⚠️ Entendi que você deseja APAGAR a tarefa #{str(seq_id).zfill(4)}.\nConfirma esta ação?", kb
+            str_ids = ", ".join(f"#{str(x).zfill(4)}" for x in valid_ids)
+            return f"🗑️ Confirma APAGAR as tarefas: {str_ids}?", kb
 
         case "task_update":
-            seq_id = params.get("seq_id")
-            if not seq_id:
-                return "⚠️ Preciso do número da tarefa (ex: #0003).", None
-            if isinstance(seq_id, str):
-                seq_id = seq_id.replace('#', '')
-            try:
-                seq_id = int(seq_id)
-            except:
-                pass
+            seq_ids = params.get("seq_id")
+            if not seq_ids:
+                return None, None
+            if not isinstance(seq_ids, list):
+                seq_ids = [seq_ids]
+                
+            valid_ids = []
+            for sid in seq_ids:
+                try:
+                    valid_ids.append(int(str(sid).replace('#', '')))
+                except ValueError:
+                    continue
+            if not valid_ids:
+                return None, None
 
             update = {}
             if params.get("status"):
@@ -449,12 +482,16 @@ async def _execute_intent(
                     update["assignee_id"] = a.data["id"]
 
             if update:
-                sb.table("tasks").update(update).eq("seq_id", seq_id).execute()
-                return f"✅ Tarefa #{str(seq_id).zfill(4)} atualizada!", None
+                sb.table("tasks").update(update).in_("seq_id", valid_ids).execute()
+                str_ids = ", ".join(f"#{str(x).zfill(4)}" for x in valid_ids)
+                return f"✅ Tarefas {str_ids} atualizadas!", None
             return None, None
 
         # ── FINANÇAS ────────────────────────────────────────────────
         case "transaction_create":
+            if "amount" not in params or "description" not in params:
+                return "⚠️ Por favor, especifique o valor e a descrição do gasto.", None
+
             beneficiary_id = None
             if params.get("beneficiary_username"):
                 b = sb.table("profiles").select("id").ilike("username", params["beneficiary_username"]).single().execute()
@@ -463,8 +500,11 @@ async def _execute_intent(
 
             tx_type = params.get("type", "collective")
             
-            raw_amt = str(params["amount"]).replace(',', '.')
-            amt = float(raw_amt)
+            try:
+                raw_amt = str(params["amount"]).replace(',', '.')
+                amt = float(raw_amt)
+            except ValueError:
+                return "⚠️ O valor especificado não é válido. Use números.", None
             
             payload = {
                 "description": params["description"],
@@ -518,6 +558,9 @@ async def _execute_intent(
 
         # ── LISTA DE COMPRAS ────────────────────────────────────────
         case "shopping_add":
+            if "item_name" not in params:
+                return "⚠️ O nome do item é obrigatório para a lista de compras.", None
+                
             insert_data = {
                 "item_name": params["item_name"],
                 "quantity": params.get("quantity", 1),
@@ -527,9 +570,12 @@ async def _execute_intent(
                 "status": "pending",
             }
             sb.table("shopping_list").insert(insert_data).execute()
-            return f"🛒 {params['quantity'] if params.get('quantity') else 1}x {params['item_name']} adicionado à lista ({insert_data['category']})!", None
+            return f"🛒 {params.get('quantity', 1)}x {params['item_name']} adicionado à lista ({insert_data['category']})!", None
             
         case "shopping_update":
+            if "item_name" not in params:
+                return "⚠️ Qual item você quer atualizar?", None
+                
             update_data = {}
             if params.get("quantity"):
                 update_data["quantity"] = params["quantity"]
