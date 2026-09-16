@@ -1,9 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import InviteForm from "./InviteForm";
 
 export const metadata = { title: "Governança" };
 
 export default async function AdminUsuariosPage() {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: profile } = await supabase.from("profiles").select("is_admin").eq("id", user.id).single();
+  if (!profile?.is_admin) redirect("/dashboard");
+
   const { data: profiles } = await supabase.from("profiles").select("*").order("created_at");
 
   return (
@@ -12,6 +20,8 @@ export default async function AdminUsuariosPage() {
         <h1 className="font-display text-4xl font-bold text-stone-800 dark:text-stone-100 tracking-tight">Gestão de Usuários</h1>
         <p className="text-stone-500 font-medium">Controle de acesso e integração com Telegram.</p>
       </header>
+
+      <InviteForm />
 
       <div className="bg-white dark:bg-stone-900 rounded-3xl shadow-sm border border-warm-200 dark:border-stone-800 overflow-hidden">
         <div className="p-6 border-b border-warm-100 dark:border-stone-800 flex justify-between items-center">
@@ -52,9 +62,6 @@ export default async function AdminUsuariosPage() {
               ))}
             </tbody>
           </table>
-        </div>
-        <div className="p-6 bg-warm-50 dark:bg-stone-950 text-sm text-stone-500">
-          Nota: Edições via Admin Panel serão implementadas futuramente. O bloqueio de novos registros no Supabase já está ativo na camada de Auth.
         </div>
       </div>
     </main>

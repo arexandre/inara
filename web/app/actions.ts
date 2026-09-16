@@ -1,7 +1,54 @@
 "use server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
+export async function inviteUser(formData: FormData) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Não autenticado" };
+
+  // Verificar se é admin
+  const { data: profile } = await supabase.from("profiles").select("is_admin").eq("id", user.id).single();
+  if (!profile?.is_admin) return { error: "Sem permissão" };
+
+  const email = formData.get("email") as string;
+  const full_name = formData.get("full_name") as string;
+  const username = formData.get("username") as string;
+
+  if (!email || !full_name || !username) return { error: "Preencha todos os campos" };
+
+  try {
+    const adminSb = createAdminClient();
+    
+    // Criar usuário via Admin API (bypassa bloqueio de signup)
+    const { data: newUser, error: authError } = await adminSb.auth.admin.createUser({
+      email,
+      password: `Inara_${Date.now()}`, // Senha temporária - usuário reseta via email
+      email_confirm: true,
+      user_metadata: { full_name, username },
+    });
+
+    if (authError) return { error: authError.message };
+
+    // Criar perfil na tabela profiles
+    if (newUser?.user) {
+      await adminSb.from("profiles").upsert({
+        id: newUser.user.id,
+        full_name,
+        username,
+        is_admin: false,
+        theme_preference: "light",
+      });
+    }
+
+    revalidatePath("/admin/usuarios");
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message };
+  }
+}
 
 export async function completeTask(taskId: string) {
   const supabase = await createClient();

@@ -1,5 +1,5 @@
 """
-Inara Bot ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Modo Polling (desenvolvimento local).
+Inara Bot — Modo Polling (desenvolvimento local).
 
 Em vez de receber webhooks, este script busca updates via getUpdates.
 Use apenas para desenvolvimento. Em producao, use o webhook via FastAPI.
@@ -16,7 +16,7 @@ import sys
 import httpx
 from dotenv import load_dotenv
 
-# Adicionar o diretÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rio raiz ao path
+# Adicionar o diretório raiz ao path
 sys.path.insert(0, os.path.dirname(__file__))
 
 load_dotenv()
@@ -26,10 +26,18 @@ from app.services.fast_track import handle_fast_track
 from app.services.telegram import send_message
 from app.services.scheduler import start_scheduler
 from app.services.ai import start_ai_worker
-import asyncio
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 API_BASE = f"https://api.telegram.org/bot{TOKEN}"
+
+# Set de referências fortes para tasks assíncronas (evita GC silencioso)
+_background_tasks: set[asyncio.Task] = set()
+
+def _fire_and_forget(coro):
+    """Cria uma task assíncrona e guarda a referência para evitar destruição pelo GC."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 FAST_TRACK_COMMANDS = {
     "/start":    "_cmd_start",
@@ -47,7 +55,7 @@ async def process_message(message: dict) -> None:
     chat_id = message["chat"]["id"]
     text = message.get("text", "").strip()
     
-    # Suporte a mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­dia (voz / imagem)
+    # Suporte a mídia (voz / imagem)
     media_bytes = None
     media_mime = None
     
@@ -61,7 +69,6 @@ async def process_message(message: dict) -> None:
             
     elif "photo" in message:
         from app.services.telegram import download_file
-        # photos ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â© uma lista (vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios tamanhos), pega o maior
         file_id = message["photo"][-1]["file_id"]
         media_mime = "image/jpeg"
         media_bytes = await download_file(file_id)
@@ -78,7 +85,7 @@ async def process_message(message: dict) -> None:
         args = text[len(base_command):].strip()
         reply = await handle_fast_track(handler_name, args, chat_id)
         if reply:
-                            await send_message(chat_id, reply)
+            await send_message(chat_id, reply)
         return
 
     # LLM (Gemini)
@@ -90,17 +97,28 @@ async def process_message(message: dict) -> None:
         logger.exception("Erro no handler de IA: %s", exc)
         reply = "Ocorreu um erro ao processar sua mensagem. Tente novamente."
     if reply:
-                            await send_message(chat_id, reply)
+        await send_message(chat_id, reply)
 
 
+async def answer_callback(callback_query_id: str) -> None:
+    """Responde ao callback para tirar o spinner do botão no Telegram."""
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(f"{API_BASE}/answerCallbackQuery", json={
+                "callback_query_id": callback_query_id
+            })
+    except Exception:
+        pass
 
 async def process_callback_query(callback_query: dict) -> None:
     chat_id = callback_query["message"]["chat"]["id"]
     data = callback_query["data"]
-    message_id = callback_query["message"]["message_id"]
     
-    # Ex: confirm_uuid, cancel_uuid
-    if "_" not in data: return
+    # Responder ao callback imediatamente (tira o spinner)
+    await answer_callback(callback_query["id"])
+    
+    if "_" not in data:
+        return
     action_type, action_id = data.split("_", 1)
     
     from app.services.fast_track import get_supabase
@@ -108,55 +126,51 @@ async def process_callback_query(callback_query: dict) -> None:
     
     res = await sb.table("pending_actions").select("*").eq("id", action_id).execute()
     if not res.data:
-        from app.services.telegram import send_message
         await send_message(chat_id, "Essa ação já expirou ou foi processada.")
         return
         
     action = res.data[0]
     if action["status"] != "pending":
-        from app.services.telegram import send_message
         await send_message(chat_id, f"Esta ação já foi resolvida (status: {action['status']}).")
         return
         
     if action_type == "cancel":
         await sb.table("pending_actions").update({"status": "rejected"}).eq("id", action_id).execute()
-        from app.services.telegram import send_message
         await send_message(chat_id, "❌ Ação cancelada.")
         return
         
     if action_type == "confirm":
-        # Executar!
         intent = action["intent"]
         payload = action["payload"]
         if intent == "task_delete":
             await sb.table("tasks").delete().eq("seq_id", int(payload["seq_id"])).execute()
-            from app.services.telegram import send_message
-            await send_message(chat_id, f"✅ Tarefa apagada com sucesso!")
+            await send_message(chat_id, "✅ Tarefa apagada com sucesso!")
         elif intent == "transaction_create":
             await sb.table("transactions").insert(payload).execute()
-            from app.services.telegram import send_message
-            await send_message(chat_id, f"✅ Despesa lançada no livro-caixa!")
+            await send_message(chat_id, "✅ Despesa lançada no livro-caixa!")
             
         await sb.table("pending_actions").update({"status": "approved"}).eq("id", action_id).execute()
 
 
 async def check_system_commands():
+    """Worker que verifica comandos manuais do frontend (fire-and-forget)."""
     logger.info("Worker de System Commands iniciado.")
     from app.services.fast_track import get_supabase
-    sb = await get_supabase()
     while True:
         try:
+            sb = await get_supabase()
             res = await sb.table("system_commands").select("*").eq("executed", False).execute()
             if res.data:
                 for cmd in res.data:
                     await sb.table("system_commands").update({"executed": True}).eq("id", cmd["id"]).execute()
                     
+                    # FIRE-AND-FORGET: não bloqueia o event loop
                     if cmd["command"] == "force_bom_dia":
                         from app.services.scheduler import resumo_matinal
-                        await resumo_matinal()
+                        _fire_and_forget(resumo_matinal())
                     elif cmd["command"] == "force_ping":
                         from app.services.scheduler import ping_de_ociosidade
-                        await ping_de_ociosidade()
+                        _fire_and_forget(ping_de_ociosidade())
         except Exception as e:
             logger.error("Erro no worker de comandos: %s", e)
         await asyncio.sleep(5)
@@ -164,8 +178,8 @@ async def check_system_commands():
 async def poll_updates() -> None:
     """Loop principal de long-polling."""
     start_scheduler()
-    asyncio.create_task(start_ai_worker())
-    asyncio.create_task(check_system_commands())
+    _fire_and_forget(start_ai_worker())
+    _fire_and_forget(check_system_commands())
     offset = 0
     logger.info("Inara Bot iniciado em modo polling! Aguardando mensagens...")
     logger.info("Envie /start para @home_inara_bot no Telegram")

@@ -168,8 +168,28 @@ async def resumo_matinal():
     except Exception as e:
         logger.error("Erro no Resumo Matinal: %s", e)
 
+async def garbage_collector():
+    """Remove ações pendentes órfãs (>24h) e comandos antigos (>48h)."""
+    try:
+        logger.info("Garbage Collector: Limpando ações órfãs...")
+        sb = await get_supabase()
+        
+        # Deletar pending_actions com mais de 24h
+        from datetime import timedelta
+        cutoff_actions = (datetime.now(BRT) - timedelta(hours=24)).isoformat()
+        await sb.table("pending_actions").delete().eq("status", "pending").lt("created_at", cutoff_actions).execute()
+        
+        # Deletar system_commands executados com mais de 48h
+        cutoff_cmds = (datetime.now(BRT) - timedelta(hours=48)).isoformat()
+        await sb.table("system_commands").delete().eq("executed", True).lt("created_at", cutoff_cmds).execute()
+        
+        logger.info("Garbage Collector: Limpeza concluída.")
+    except Exception as e:
+        logger.error("Erro no Garbage Collector: %s", e)
+
 def start_scheduler():
     scheduler.add_job(ping_de_ociosidade, 'interval', minutes=15, id='ping_ociosidade')
     scheduler.add_job(resumo_matinal, 'cron', hour=8, minute=30, id='bom_dia')
+    scheduler.add_job(garbage_collector, 'cron', hour=4, minute=0, id='garbage_collector')
     scheduler.start()
-    logger.info("Scheduler Iniciado: Ping e Resumo Matinal Ativos.")
+    logger.info("Scheduler Iniciado: Ping, Resumo Matinal e Garbage Collector Ativos.")

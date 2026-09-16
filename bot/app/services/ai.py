@@ -122,7 +122,7 @@ async def _process_ai_message(
 
     if not sender:
         logger.warning(f"Mensagem ignorada: telegram_id {chat_id} não vinculado.")
-        return "", None, None
+        return "", None
 
     # Contextualizar a mensagem para o Gemini
     from datetime import datetime
@@ -222,9 +222,14 @@ async def _process_ai_message(
                 final_replies.append(reply)
                 
             # Executar a ação correspondente
-            action_reply = await _execute_intent(intent, params, sender, sb)
-            if action_reply:
-                action_replies.append(action_reply)
+            action_result = await _execute_intent(intent, params, sender, sb, chat_id)
+            if action_result:
+                action_text, action_markup = action_result
+                if action_text:
+                    action_replies.append(action_text)
+                # Se tem markup (inline keyboard), retornar imediatamente
+                if action_markup:
+                    return action_text or reply, action_markup
 
         # Montar resposta final combinada
         combined_text = "\n".join(final_replies)
@@ -244,7 +249,7 @@ async def _process_ai_message(
         except Exception as e:
             logger.warning("Falha ao salvar chat_history (Tabela não existe?): %s", e)
 
-        return final_reply
+        return final_reply, None
 
     except json.JSONDecodeError as e:
         logger.error("Gemini retornou JSON inválido: %s - Raw: %s", e, raw)
@@ -259,9 +264,9 @@ async def _process_ai_message(
 # Dispatcher de intents
 # ---------------------------------------------------------------------------
 async def _execute_intent(
-    intent: str, params: dict[str, Any], sender: dict, sb: Client
-) -> str | None:
-    """Executa a ação no Supabase baseado no intent e retorna info extra."""
+    intent: str, params: dict[str, Any], sender: dict, sb: Client, chat_id: int = 0
+) -> tuple[str | None, dict | None]:
+    """Executa a ação no Supabase baseado no intent e retorna (reply, markup)."""
 
     match intent:
         # ── TAREFAS ─────────────────────────────────────────────────
@@ -364,7 +369,7 @@ async def _execute_intent(
             if "due_date" in insert_data:
                 resp_str += f" (Prazo: {insert_data['due_date']})"
             
-            return resp_str
+            return resp_str, None
 
         case "task_list":
             query = sb.table("tasks").select("seq_id, title, status, assignee_id, due_date").neq("status", "done")
@@ -382,7 +387,7 @@ async def _execute_intent(
                 e = emoji_map.get(t["status"], "•")
                 prazo = f" 📅 {t['due_date']}" if t.get("due_date") else ""
                 lines.append(f"🔹 `{code}` {t['title']}{prazo}")
-            return "\n", None.join(lines)
+            return "\n".join(lines), None
 
         case "task_delete":
             seq_id = params.get("seq_id")
@@ -480,7 +485,7 @@ async def _execute_intent(
             for t in r.data:
                 emoji = "🏠" if t["type"] == "collective" else "👤"
                 lines.append(f"{emoji} {t['description']} — R$ {float(t['amount']):.2f}")
-            return "\n", None.join(lines)
+            return "\n".join(lines), None
 
         case "balance_check":
             r = sb.table("balance_summary").select("*").execute()
@@ -492,7 +497,7 @@ async def _execute_intent(
                 balance = float(b["balance"])
                 sinal = "+" if balance >= 0 else ""
                 lines.append(f"@{b['username']}: {sinal}R$ {balance:.2f}")
-            return "\n", None.join(lines)
+            return "\n".join(lines), None
 
         # ── LISTA DE COMPRAS ────────────────────────────────────────
         case "shopping_add":
@@ -524,7 +529,7 @@ async def _execute_intent(
             for item in r.data:
                 cat = f" _({item['category']})_" if item.get("category") else ""
                 lines.append(f"• {item['item_name']} — {item['quantity']}{cat}")
-            return "\n", None.join(lines)
+            return "\n".join(lines), None
 
         case "shopping_done":
             item_name = params.get("item_name", "")
@@ -603,5 +608,5 @@ async def handle_ai_message(text: str, chat_id: int, media_bytes: bytes | None =
         "media_mime": media_mime
     })
     
-    return "", None, None  # O worker enviará a resposta diretamente.
+    return "", None  # O worker enviará a resposta diretamente.
 
