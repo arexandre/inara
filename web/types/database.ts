@@ -25,6 +25,7 @@ export interface Task {
   created_by: string;
   weight: number;
   due_date: string | null;
+  due_time: string | null;
   completed_at: string | null;
   is_archived: boolean;
   created_at: string;

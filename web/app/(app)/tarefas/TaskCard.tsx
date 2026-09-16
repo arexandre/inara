@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, MouseEvent } from "react";
+import { useState, useRef, useEffect, MouseEvent, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { completeTask, reassignTask, deleteTask } from "@/app/actions";
 import type { Task } from "@/types/database";
 
@@ -9,6 +10,8 @@ export default function TaskCard({ task }: { task: Task & { assignee?: { usernam
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     function handleClickOutside(e: Event) {
@@ -56,6 +59,16 @@ export default function TaskCard({ task }: { task: Task & { assignee?: { usernam
         {task.description && (
           <p className="text-sm text-stone-500 font-medium line-clamp-2">{task.description}</p>
         )}
+        {(task.due_date || task.due_time) && (
+          <div className="flex items-center gap-1.5 text-xs font-bold text-stone-400 mt-1">
+            <span>📅</span>
+            <span>
+              {task.due_date ? new Date(task.due_date + "T12:00:00").toLocaleDateString("pt-BR", { day: 'numeric', month: 'short' }) : ""}
+              {task.due_date && task.due_time ? ", " : ""}
+              {task.due_time ? task.due_time.substring(0, 5) : ""}
+            </span>
+          </div>
+        )}
         <div className="flex items-center justify-between mt-auto pt-3 border-t border-warm-100/50">
           <div className="text-sm font-bold text-sage-600">
             @{task.assignee?.username ?? "sem dono"}
@@ -77,14 +90,28 @@ export default function TaskCard({ task }: { task: Task & { assignee?: { usernam
           {task.status !== "done" && (
             <>
               <button
-                onClick={async () => { setMenuOpen(false); await completeTask(task.id); }}
-                className="px-4 py-2 text-left text-sm font-bold text-stone-700 hover:bg-sage-50 hover:text-sage-700 transition-colors"
+                onClick={() => { 
+                  setMenuOpen(false); 
+                  startTransition(async () => {
+                    await completeTask(task.id);
+                    router.refresh();
+                  });
+                }}
+                disabled={isPending}
+                className="px-4 py-2 text-left text-sm font-bold text-stone-700 hover:bg-sage-50 hover:text-sage-700 transition-colors disabled:opacity-50"
               >
-                ✓ Concluir
+                ✅ Concluir
               </button>
               <button
-                onClick={async () => { setMenuOpen(false); await reassignTask(task.id, task.assignee_id); }}
-                className="px-4 py-2 text-left text-sm font-bold text-stone-700 hover:bg-brand-50 hover:text-brand-700 transition-colors"
+                onClick={() => { 
+                  setMenuOpen(false); 
+                  startTransition(async () => {
+                    await reassignTask(task.id, task.assignee_id);
+                    router.refresh();
+                  });
+                }}
+                disabled={isPending}
+                className="px-4 py-2 text-left text-sm font-bold text-stone-700 hover:bg-brand-50 hover:text-brand-700 transition-colors disabled:opacity-50"
               >
                 🎲 Solicitar Resorteio
               </button>
@@ -92,8 +119,15 @@ export default function TaskCard({ task }: { task: Task & { assignee?: { usernam
             </>
           )}
           <button
-            onClick={async () => { setMenuOpen(false); await deleteTask(task.id); }}
-            className="px-4 py-2 text-left text-sm font-bold text-red-600 hover:bg-red-50 transition-colors"
+            onClick={() => { 
+              setMenuOpen(false); 
+              startTransition(async () => {
+                await deleteTask(task.id);
+                router.refresh();
+              });
+            }}
+            disabled={isPending}
+            className="px-4 py-2 text-left text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
           >
             🗑️ Apagar
           </button>

@@ -69,10 +69,10 @@ Você responde sempre de forma amigável, mas não gosta de enrolação.
 ### Comandos (Intents) Suportados:
 | Intent | Params | Descrição |
 |--------|--------|-----------|
-| `task_create` | `title` (OBRIGATÓRIO, string curta), `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `weight?` (int 1-5) | Criar tarefa. O 'title' NÃO pode ser genérico como 'Nova Tarefa'. |
+| `task_create` | `title` (OBRIGATÓRIO, string curta), `description?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `due_time?` (HH:MM), `weight?` (int 1-5) | Criar tarefa. O 'title' NÃO pode ser genérico como 'Nova Tarefa'. |
 | `event_create` | `title`, `event_date` (YYYY-MM-DD), `event_time?` (HH:MM), `is_all_day?` | Criar Evento/Compromisso. Ex: "sábado tem churrasco", "aniversário da vovó", "médico às 14h". |
 | `task_list` | `status?` (backlog/todo/in_progress/done) | Listar tarefas |
-| `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD) | Atualizar tarefa |
+| `task_update` | `seq_id`, `status?`, `assignee_username?`, `due_date?` (YYYY-MM-DD), `due_time?` (HH:MM) | Atualizar tarefa |
 | `task_delete` | `seq_id` | Deletar/Apagar tarefa |
 | `transaction_create` | `description`, `amount`, `type` (collective/individual), `category?`, `beneficiary_username?` | Registrar gasto |
 | `transaction_list` | `limit?` | Listar transações recentes |
@@ -105,7 +105,7 @@ async def _process_ai_message(
     chat_id: int, 
     media_bytes: bytes | None = None, 
     media_mime: str | None = None
-) -> tuple[str | None, dict | None]:
+) -> list[tuple[str | None, dict | None]]:
     """
     Processa uma mensagem livre usando o Gemini e executa a ação no Supabase.
     Retorna a mensagem formatada para enviar ao Telegram.
@@ -122,7 +122,7 @@ async def _process_ai_message(
 
     if not sender:
         logger.warning(f"Mensagem ignorada: telegram_id {chat_id} não vinculado.")
-        return "", None
+        return []
 
     # Contextualizar a mensagem para o Gemini
     from datetime import datetime
@@ -173,16 +173,16 @@ async def _process_ai_message(
                 if "429" in err_str or "exhausted" in err_str or "too many requests" in err_str:
                     logger.warning(f"Gemini Rate Limit (429). Tentativa {attempt+1}/{MAX_RETRIES}. Aguardando...")
                     if attempt == MAX_RETRIES - 1:
-                        return "🥵 Gente, o Google me botou de castigo (limite de uso)! Espera uns minutinhos e tenta de novo, por favor?", None
+                        return [("Gente, o Google me botou de castigo (limite de uso)! Espera uns minutinhos e tenta de novo, por favor?", None)]
                     await asyncio.sleep(5 * (attempt + 1))
                 elif "timeout" in err_str or "connection" in err_str or "504" in err_str or "deadline" in err_str:
                     logger.warning(f"Timeout Gemini. Tentativa {attempt+1}/{MAX_RETRIES}.")
                     if attempt == MAX_RETRIES - 1:
-                        return "🔌 Minha conexão com o cérebro (Google) falhou... Me dá 1 minutinho e repete?", None
+                        return [("Minha conexão com o cérebro (Google) falhou... Me dá 1 minutinho e repete?", None)]
                     await asyncio.sleep(2)
                 else:
                     logger.error(f"Erro no Gemini: {e}")
-                    return "🤯 Deu um curto-circuito interno aqui ao pensar nisso. (Erro na IA)", None
+                    return [("Deu um curto-circuito interno aqui ao pensar nisso. (Erro na IA)", None)]
         
         # Logar uso da API Gemini
         try:
@@ -207,8 +207,8 @@ async def _process_ai_message(
         
         actions = result if isinstance(result, list) else [result]
         
-        final_replies = []
-        action_replies = []
+        messages_to_send = []
+        combined_texts = []
         
         for act in actions:
             intent = act.get("intent", "chat")
@@ -217,26 +217,28 @@ async def _process_ai_message(
             
             logger.info("Intent: %s | Params: %s | Sender: @%s", intent, params, sender["username"])
             
-            # Adiciona o texto natural se houver (evita repetir "Anotado" pra cada item)
-            if reply and reply not in final_replies:
-                final_replies.append(reply)
-                
             # Executar a ação correspondente
             action_result = await _execute_intent(intent, params, sender, sb, chat_id)
             if action_result:
                 action_text, action_markup = action_result
-                if action_text:
-                    action_replies.append(action_text)
-                # Se tem markup (inline keyboard), retornar imediatamente
                 if action_markup:
-                    return action_text or reply, action_markup
+                    # Mensagens com teclado devem ir separadas
+                    msg_text = action_text or reply or "Confirme a ação:"
+                    messages_to_send.append((msg_text, action_markup))
+                else:
+                    if reply and reply not in combined_texts:
+                        combined_texts.append(reply)
+                    if action_text and action_text not in combined_texts:
+                        combined_texts.append(action_text)
+            else:
+                if reply and reply not in combined_texts:
+                    combined_texts.append(reply)
 
-        # Montar resposta final combinada
-        combined_text = "\n".join(final_replies)
-        if action_replies:
-            combined_text += "\n\n" + "\n".join([r for r in action_replies if isinstance(r, str)])
+        if combined_texts:
+            # Insere as respostas combinadas no topo
+            messages_to_send.insert(0, ("\n\n".join(combined_texts), None))
             
-        final_reply = combined_text or "✅ Feito!"
+        final_reply = messages_to_send[0][0] if messages_to_send else ""
         
         # ── Salvar no Histórico de Chat (Fire and Forget) ──
         try:
@@ -249,15 +251,15 @@ async def _process_ai_message(
         except Exception as e:
             logger.warning("Falha ao salvar chat_history (Tabela não existe?): %s", e)
 
-        return final_reply, None
+        return messages_to_send
 
     except json.JSONDecodeError as e:
         logger.error("Gemini retornou JSON inválido: %s - Raw: %s", e, raw)
-        return "🤖 Desculpa, tive um problema ao processar. Tenta de novo?", None
+        return [("Desculpa, tive um problema ao processar. Tenta de novo?", None)]
 
     except Exception as e:
         logger.exception("Erro no handler de IA: %s", e)
-        return "⚠️ Algo deu errado. Tenta novamente em instantes.", None
+        return [("Algo deu errado. Tenta novamente em instantes.", None)]
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +350,8 @@ async def _execute_intent(
             # Prazos
             if params.get("due_date"):
                 insert_data["due_date"] = params["due_date"]
+            if params.get("due_time"):
+                insert_data["due_time"] = params["due_time"]
                 
             r = sb.table("tasks").insert(insert_data).execute()
 
@@ -366,13 +370,20 @@ async def _execute_intent(
             resp_str = f"📋 Tarefa {code} criada!"
             if a_username:
                 resp_str = f"📋 Tarefa {code} criada e atribuída a @{a_username}!"
-            if "due_date" in insert_data:
-                resp_str += f" (Prazo: {insert_data['due_date']})"
+            
+            prazo_str = ""
+            if insert_data.get("due_date"):
+                prazo_str = insert_data["due_date"]
+                if insert_data.get("due_time"):
+                    prazo_str += f" às {insert_data['due_time']}"
+            
+            if prazo_str:
+                resp_str += f" (Prazo: {prazo_str})"
             
             return resp_str, None
 
         case "task_list":
-            query = sb.table("tasks").select("seq_id, title, status, assignee_id, due_date").neq("status", "done")
+            query = sb.table("tasks").select("seq_id, title, status, assignee_id, due_date, due_time").neq("status", "done")
             if params.get("status"):
                 query = query.eq("status", params["status"])
             r = query.order("seq_id").execute()
@@ -385,7 +396,11 @@ async def _execute_intent(
             for t in r.data:
                 code = f"#{str(t['seq_id']).zfill(4)}"
                 e = emoji_map.get(t["status"], "•")
-                prazo = f" 📅 {t['due_date']}" if t.get("due_date") else ""
+                prazo = ""
+                if t.get("due_date"):
+                    prazo = f" 📅 {t['due_date']}"
+                    if t.get("due_time"):
+                        prazo += f" às {t['due_time'][:5]}" # strip seconds if any
                 lines.append(f"🔹 `{code}` {t['title']}{prazo}")
             return "\n".join(lines), None
 
@@ -426,6 +441,8 @@ async def _execute_intent(
                 update["status"] = params["status"]
             if params.get("due_date"):
                 update["due_date"] = params["due_date"]
+            if "due_time" in params:
+                update["due_time"] = params["due_time"]
             if params.get("assignee_username"):
                 a = sb.table("profiles").select("id").ilike("username", params["assignee_username"]).single().execute()
                 if a.data:
@@ -571,13 +588,14 @@ async def start_ai_worker():
             media_bytes = task.get("media_bytes")
             media_mime = task.get("media_mime")
             
-            reply, markup = await _process_ai_message(text, chat_id, media_bytes, media_mime)
-            if markup and markup.get("type") == "poll":
-                from app.services.telegram import send_poll
-                await send_poll(chat_id, markup["question"], markup["options"])
-            elif reply:
-                from app.services.telegram import send_message
-                await send_message(chat_id, reply, reply_markup=markup)
+            responses = await _process_ai_message(text, chat_id, media_bytes, media_mime)
+            for reply, markup in responses:
+                if markup and markup.get("type") == "poll":
+                    from app.services.telegram import send_poll
+                    await send_poll(chat_id, markup["question"], markup["options"])
+                elif reply:
+                    from app.services.telegram import send_message
+                    await send_message(chat_id, reply, reply_markup=markup)
                 
         except Exception as e:
             logger.error("Erro fatal no AI Worker: %s", e)

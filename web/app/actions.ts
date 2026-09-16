@@ -53,19 +53,19 @@ export async function inviteUser(formData: FormData) {
 export async function completeTask(taskId: string) {
   const supabase = await createClient();
   await supabase.from("tasks").update({ status: "done" }).eq("id", taskId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function purchaseShoppingItem(id: string) {
   const supabase = await createClient();
   await supabase.from("shopping_list").update({ status: "purchased" }).eq("id", id);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function payTransaction(transactionId: string) {
   const supabase = await createClient();
   await supabase.from("transactions").delete().eq("id", transactionId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function logout() {
@@ -77,7 +77,7 @@ export async function logout() {
 export async function deleteTask(taskId: string) {
   const supabase = await createClient();
   await supabase.from("tasks").delete().eq("id", taskId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function updateProfileSettings(formData: FormData) {
@@ -158,5 +158,5 @@ export async function reassignTask(taskId: string, currentAssigneeId: string | n
     await supabase.from("tasks").update({ assignee_id: bestId }).eq("id", taskId);
   }
   
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
