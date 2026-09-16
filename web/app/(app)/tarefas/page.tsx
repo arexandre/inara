@@ -36,25 +36,7 @@ export default async function TarefasPage() {
       </header>
 
       {/* Kanban */}
-      <div className="grid gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-4 items-start">
-        {COLUMNS.map((col) => (
-          <section key={col.status} className="bg-warm-100/50 p-4 rounded-3xl space-y-4 border border-warm-200/60 shadow-sm">
-            <div className="flex items-center gap-2 px-2">
-              <span className="text-xl">{col.emoji}</span>
-              <h2 className="font-display font-bold text-stone-700 text-lg tracking-tight">{col.label}</h2>
-              <span className="ml-auto rounded-full bg-white px-3 py-1 text-xs font-bold text-sage-600 shadow-sm">
-                {grouped[col.status]?.length ?? 0}
-              </span>
-            </div>
-            
-            <div className="space-y-3">
-              {(grouped[col.status] ?? []).map((task) => (
-                <TaskCard key={task.id} task={task as any} />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
+      <TasksBoard grouped={grouped} columns={COLUMNS} />
     </main>
   );
 }
