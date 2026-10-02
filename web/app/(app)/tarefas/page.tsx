@@ -23,20 +23,15 @@ export default async function TarefasPage() {
     .eq("is_archived", false)
     .order("seq_id", { ascending: true });
 
-  const grouped = COLUMNS.reduce((acc, col) => {
-    acc[col.status] = (tasks ?? []).filter((t) => t.status === col.status);
-    return acc;
-  }, {} as Record<TaskStatus, Task[]>);
-
   return (
     <main className="p-6 md:p-10 space-y-8 max-w-[1600px] mx-auto">
       <header className="space-y-2">
         <h1 className="font-display text-4xl font-bold text-stone-800 tracking-tight">Tarefas</h1>
-        <p className="text-stone-500 font-medium">Arraste para organizar (ou use o Telegram!).</p>
+        <p className="text-stone-500 font-medium">Arraste para organizar (ou use o Telegram!). O painel é vivo ⚡.</p>
       </header>
 
       {/* Kanban */}
-      <TasksBoard grouped={grouped} columns={COLUMNS} />
+      <TasksBoard initialTasks={tasks as any} columns={COLUMNS} />
     </main>
   );
 }

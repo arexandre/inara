@@ -193,3 +193,100 @@ def start_scheduler():
     scheduler.add_job(garbage_collector, 'cron', hour=4, minute=0, id='garbage_collector')
     scheduler.start()
     logger.info("Scheduler Iniciado: Ping, Resumo Matinal e Garbage Collector Ativos.")
+async def cobrar_pagamentos():
+    try:
+        from app.services.fast_track import get_supabase
+        sb = await get_supabase()
+        res = await sb.table("balance_summary").select("*").execute()
+        
+        dividas = []
+        if res.data:
+            for p in res.data:
+                if p.get('balance', 0) < -1:
+                    dividas.append(f"- @{p['username']} está devendo R$ {abs(p['balance']):.2f}")
+        
+        if dividas:
+            msg = "💸 *Cobrança Inara* 💸\n\nTem gente que esqueceu de pagar o rateio:\n" + "\n".join(dividas) + "\n\nFavor acertar as contas!"
+            await broadcast_to_residents(msg)
+        else:
+            await broadcast_to_residents("Ninguém deve nada, parabéns! 🎉")
+    except Exception as e:
+        logger.error("Erro cobrar_pagamentos: %s", e)
+
+async def boa_noite():
+    await broadcast_to_residents("🌙 Boa noite, pessoal! Não esqueçam de apagar as luzes e conferir se a porta está trancada. Até amanhã!")
+
+async def finance_checkout():
+    try:
+        from app.services.fast_track import get_supabase
+        sb = await get_supabase()
+        
+        # 1. Puxar saldos atuais
+        res = await sb.table('balance_summary').select('*').execute()
+        
+        if not res.data:
+            await broadcast_to_residents("✨ Fechamento Financeiro: Nada a acertar! As contas estão zeradas.")
+            return
+
+        payers = [p for p in res.data if p.get('balance', 0) < -0.01]
+        receivers = [p for p in res.data if p.get('balance', 0) > 0.01]
+        
+        # 2. Se não houver nada a pagar
+        if not payers or not receivers:
+            await broadcast_to_residents("✨ Fechamento Financeiro: Nada a acertar! As contas estão zeradas.")
+            
+            # Limpar todos os pending -> settled por precaução
+            await sb.table('transactions').update({'status': 'settled'}).eq('status', 'pending').execute()
+            return
+            
+        instructions = []
+        
+        # 3. Matemática de dívida (Greedy)
+        for payer in payers:
+            debt = abs(payer['balance'])
+            for receiver in receivers:
+                if receiver['balance'] <= 0: continue
+                if debt <= 0: break
+                
+                settle_amount = min(debt, receiver['balance'])
+                debt -= settle_amount
+                receiver['balance'] -= settle_amount
+                
+                instructions.append(f"💸 @{payer['username']} deve pagar R$ {settle_amount:.2f} para @{receiver['username']}")
+                
+        # 4. Atualizar transações para 'settled'
+        await sb.table('transactions').update({'status': 'settled'}).eq('status', 'pending').execute()
+        
+        # 5. Gerar Relatório
+        msg = f"✅ *Fechamento Financeiro Concluído!*\n\nInstruções de acerto:\n{chr(10).join(instructions)}\n\nTodas as transações do período foram quitadas e o balanço foi resetado."
+        
+        # Salvar na base de conhecimento como log
+        await sb.table('knowledge_base').insert({
+            "title": f"Fechamento Financeiro - {datetime.now(BRT).strftime('%d/%m/%Y')}",
+            "topic": "Finanças",
+            "content": msg,
+            "source_type": "auto"
+        }).execute()
+        
+        await broadcast_to_residents(msg)
+    except Exception as e:
+        logger.error("Erro finance_checkout: %s", e)
+
+async def garbage_collector():
+    try:
+        logger.info("Garbage Collector: Limpando...")
+        from app.services.fast_track import get_supabase
+        sb = await get_supabase()
+        
+        from datetime import timedelta
+        ontem = (datetime.now(BRT) - timedelta(days=1)).isoformat()
+        
+        await sb.table("pending_actions").delete().lt("created_at", ontem).execute()
+        await sb.table("system_commands").delete().eq("executed", True).execute()
+    except Exception as e:
+        logger.error("GC Error: %s", e)
+
+
+
+
+

@@ -115,10 +115,10 @@ export default function TimelineClient({ logs }: { logs: Log[] }) {
                   <span className={`text-xs font-bold text-stone-400 px-1 ${isHuman ? "text-right" : "text-left"}`}>
                     {isHuman ? `@${log.profile?.username || "morador"}` : "Inara"} • {new Date(log.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                   </span>
-                  <div className={`px-5 py-4 rounded-3xl shadow-sm text-[15px] font-medium leading-relaxed
+                  <div className={`px-5 py-4 rounded-3xl shadow-sm text-[15px] font-medium leading-relaxed whitespace-pre-wrap
                     ${isHuman 
-                      ? "bg-brand-600 text-white rounded-tr-sm" 
-                      : "bg-white text-stone-700 border border-warm-200 rounded-tl-sm"
+                      ? "bg-brand-600 dark:bg-brand-500 text-white rounded-tr-sm" 
+                      : "bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-warm-200 dark:border-stone-700 rounded-tl-sm"
                     }`}>
                     {log.message}
                   </div>

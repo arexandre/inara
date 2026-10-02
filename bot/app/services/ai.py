@@ -23,14 +23,14 @@ from app.logger import logger
 # ---------------------------------------------------------------------------
 # Instanciação do Modelo
 # ---------------------------------------------------------------------------
-def _get_model():
+def _get_model(sys_prompt="Você é Inara.", kb_context=""):
     from datetime import datetime
     from app.logger import BRT
     agora = datetime.now(BRT)
     dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
     dia_semana = dias[agora.weekday()]
     
-    dynamic_sys_prompt = f"Data atual: {agora.strftime('%Y-%m-%d %H:%M:%S')} ({dia_semana}).\n{SYSTEM_PROMPT}"
+    dynamic_sys_prompt = f"Data atual: {agora.strftime('%Y-%m-%d %H:%M:%S')} ({dia_semana}).\n{sys_prompt}"
     
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
     return genai.GenerativeModel(
@@ -160,7 +160,17 @@ async def _process_ai_message(
         })
 
     try:
-        model = _get_model()
+        
+        # Inject vivo prompt
+        sys_prompt = "Você é Inara."
+        try:
+            sys_data = sb.table("system_settings").select("system_prompt").eq("id", 1).single().execute()
+            if sys_data.data and "system_prompt" in sys_data.data:
+                sys_prompt = sys_data.data["system_prompt"]
+        except Exception:
+            pass
+        model = _get_model(sys_prompt, kb_context)
+
         
         # Lógica de Retry com Backoff (Anti-429 e Timeouts)
         MAX_RETRIES = 3
@@ -673,4 +683,29 @@ async def handle_ai_message(text: str, chat_id: int, media_bytes: bytes | None =
         "media_bytes": media_bytes,
         "media_mime": media_mime
     })
+
+
+
+async def generate_boot_message():
+    try:
+        from app.services.fast_track import get_supabase
+        sb = await get_supabase()
+        sys_data = await sb.table('system_settings').select('system_prompt').eq('id', 1).single().execute()
+        sys_prompt = sys_data.data.get('system_prompt', 'Você é Inara.') if sys_data.data else 'Você é Inara.'
+        
+        prompt = "Gere uma frase curtíssima (1-2 linhas) anunciando que seu sistema acabou de inicializar (boot_sequence). Seja ácida e diga que a farra acabou."
+        
+        import google.generativeai as genai
+        import os
+        genai.configure(api_key=os.environ['GEMINI_API_KEY'])
+        model = genai.GenerativeModel(
+            model_name='gemini-3.5-flash',
+            system_instruction=sys_prompt
+        )
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        import logging
+        logging.getLogger('inara').error(f"Erro no generate_boot_message: {e}")
+        return "Sistema online. A farra acabou."
 

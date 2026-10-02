@@ -171,3 +171,15 @@ async def _cmd_tarefas(args: str, chat_id: int) -> str:
         prazo = f" 📅 {t['due_date']}" if t.get("due_date") else ""
         lines.append(f"{e} `{code}` {t['title']}{assignee}{prazo}")
     return "\n".join(lines)
+
+async def log_to_db(level: str, source: str, message: str, details: dict = None):
+    try:
+        sb = await get_supabase()
+        await sb.table("system_logs").insert({
+            "level": level,
+            "source": source,
+            "message": message,
+            "details": details or {}
+        }).execute()
+    except Exception as e:
+        logger.error("Falha fatal ao escrever no system_logs: %s", e)

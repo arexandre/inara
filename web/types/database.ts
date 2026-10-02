@@ -20,6 +20,8 @@ export interface Task {
   seq_id: number;
   title: string;
   description: string | null;
+  emoji: string | null;
+  recurrence: "none" | "daily" | "weekly";
   status: TaskStatus;
   assignee_id: string | null;
   created_by: string;
@@ -94,6 +96,33 @@ export interface DailyJournal {
   created_at: string;
 }
 
+export interface CustomRoutine {
+  id: string;
+  name: string;
+  command: string;
+  schedule_cron: string;
+  is_active: boolean;
+  last_run: string | null;
+  created_at: string;
+}
+
+export interface KnowledgeBaseDoc {
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface SystemHealthEntry {
+  id: string;
+  service_name: string;
+  status: string;
+  last_check: string;
+  details: Record<string, any>;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -105,6 +134,9 @@ export interface Database {
       system_settings: { Row: SystemSettings; Insert: Omit<SystemSettings, "updated_at">; Update: Partial<SystemSettings> };
       mural: { Row: Mural; Insert: Omit<Mural, "id" | "created_at">; Update: Partial<Mural> };
       daily_journal: { Row: DailyJournal; Insert: Omit<DailyJournal, "id" | "created_at">; Update: Partial<DailyJournal> };
+      custom_routines: { Row: CustomRoutine; Insert: Omit<CustomRoutine, "id" | "created_at">; Update: Partial<CustomRoutine> };
+      knowledge_base: { Row: KnowledgeBaseDoc; Insert: Omit<KnowledgeBaseDoc, "id" | "created_at">; Update: Partial<KnowledgeBaseDoc> };
+      system_health: { Row: SystemHealthEntry; Insert: Omit<SystemHealthEntry, "id">; Update: Partial<SystemHealthEntry> };
     };
     Views: {
       balance_summary: {

@@ -1,16 +1,24 @@
 "use client";
 import { useState } from "react";
+import { triggerRoutine } from "@/app/actions";
+import { toast } from "sonner";
 
 export default function AdminWidget() {
   const [loading, setLoading] = useState<string | null>(null);
-  
+
   const trigger = async (command: string) => {
     setLoading(command);
-    await fetch("/api/trigger", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command })
-    });
+    try {
+      const result = await triggerRoutine(command);
+      if (result?.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Comando enviado para o Bot!");
+      }
+    } catch (e) {
+      toast.error("Erro ao disparar comando.");
+      console.error(e);
+    }
     setTimeout(() => setLoading(null), 1000);
   };
 
@@ -27,16 +35,16 @@ export default function AdminWidget() {
         </span>
         <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Motor AI: Online</span>
       </div>
-      
+
       <div className="flex flex-col sm:flex-row gap-4">
-        <button 
+        <button
           onClick={() => trigger("force_bom_dia")}
           disabled={loading !== null}
           className="flex-1 bg-warm-50 dark:bg-stone-800 hover:bg-warm-100 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 border border-warm-200 dark:border-stone-700 p-4 rounded-2xl font-bold transition-all disabled:opacity-50"
         >
           {loading === "force_bom_dia" ? "Disparando..." : "🌤️ Forçar Resumo Matinal"}
         </button>
-        <button 
+        <button
           onClick={() => trigger("force_ping")}
           disabled={loading !== null}
           className="flex-1 bg-warm-50 dark:bg-stone-800 hover:bg-warm-100 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 border border-warm-200 dark:border-stone-700 p-4 rounded-2xl font-bold transition-all disabled:opacity-50"

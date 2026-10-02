@@ -1,16 +1,51 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 import TaskCard from "./TaskCard";
 import type { Task, TaskStatus } from "@/types/database";
+import { useRouter } from "next/navigation";
 
 type Props = {
-  grouped: Record<TaskStatus, any[]>;
+  initialTasks: Task[];
   columns: { status: TaskStatus; label: string; emoji: string }[];
 };
 
-export default function TasksBoard({ grouped, columns }: Props) {
+export default function TasksBoard({ initialTasks, columns }: Props) {
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [selectedTasks, setSelectedTasks] = useState<number[]>([]);
+  const supabase = createClient();
+  const router = useRouter();
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('realtime_tasks')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            // Need to fetch assignee info potentially, but for now just add it
+            // Ideally we just tell the router to refresh to get relational data
+            router.refresh(); 
+          } else if (payload.eventType === 'UPDATE') {
+            setTasks(prev => prev.map(t => t.id === payload.new.id ? { ...t, ...payload.new } : t));
+          } else if (payload.eventType === 'DELETE') {
+            setTasks(prev => prev.filter(t => t.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, router]);
+
+  const grouped = columns.reduce((acc, col) => {
+    acc[col.status] = tasks.filter((t) => t.status === col.status && !t.is_archived);
+    return acc;
+  }, {} as Record<TaskStatus, Task[]>);
 
   const toggleSelect = (seq_id: number) => {
     setSelectedTasks(prev => 
@@ -31,7 +66,8 @@ export default function TasksBoard({ grouped, columns }: Props) {
     
     if (response.ok) {
       setSelectedTasks([]);
-      window.location.reload(); // simple refresh
+      // Realtime will update the UI automatically or we can rely on router.refresh()
+      router.refresh();
     }
   };
 
@@ -48,20 +84,18 @@ export default function TasksBoard({ grouped, columns }: Props) {
           </header>
 
           <div className="flex-1 overflow-y-auto space-y-4 no-scrollbar px-1">
-            {grouped[col.status].map((task) => (
-              <div key={task.id} className="relative group">
-                <input 
-                  type="checkbox" 
-                  checked={selectedTasks.includes(task.seq_id)}
-                  onChange={() => toggleSelect(task.seq_id)}
-                  className="absolute top-4 left-4 z-10 w-5 h-5 rounded border-warm-300 text-brand-600 focus:ring-brand-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                  style={{ opacity: selectedTasks.includes(task.seq_id) ? 1 : undefined }}
-                />
-                <div className={selectedTasks.includes(task.seq_id) ? "opacity-90 ring-2 ring-brand-500 rounded-2xl" : ""}>
-                  <TaskCard task={task} currentAssigneeId={null} />
+            {grouped[col.status].map((task) => {
+              const isSelected = selectedTasks.includes(task.seq_id);
+              return (
+                <div 
+                  key={task.id} 
+                  onClick={() => toggleSelect(task.seq_id)}
+                  className={`cursor-pointer rounded-2xl transition-all duration-200 ${isSelected ? 'ring-2 ring-brand-500 scale-[1.02] bg-brand-50/10 shadow-md' : 'hover:scale-[1.01]'}`}
+                >
+                  <TaskCard task={task} />
                 </div>
-              </div>
-            ))}
+              );
+            })}
             
             {grouped[col.status].length === 0 && (
               <div className="h-24 flex items-center justify-center border-2 border-dashed border-warm-200 dark:border-stone-800 rounded-2xl text-stone-400 font-medium text-sm">

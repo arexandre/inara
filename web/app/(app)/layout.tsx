@@ -2,18 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import RealtimeListener from "@/components/RealtimeListener";
+import PushSubscriber from "@/components/PushSubscriber";
+import NotificationBell from "@/components/NotificationBell";
 import { logout } from "@/app/actions";
-
-const NAV_ITEMS = [
-  { href: "/dashboard",  label: "Início",    emoji: "🏠" },
-  { href: "/tarefas",    label: "Tarefas",   emoji: "📦" },
-  { href: "/compras",    label: "Compras",   emoji: "🛒" },
-  { href: "/financas",   label: "Finanças",  emoji: "💸" },
-  { href: "/calendario", label: "Calendário",emoji: "📅" },
-  { href: "/mural",      label: "Mural",     emoji: "📌" },
-  { href: "/historico",  label: "Histórico", emoji: "📜" },
-  { href: "/chat",       label: "Web Chat",  emoji: "💬" },
-];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -29,10 +20,28 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const isAdmin = profile?.is_admin === true;
 
+  const NAV_ITEMS = [
+    { href: "/dashboard",  label: "Início",            emoji: "🏠" },
+    { href: "/tarefas",    label: "Tarefas",           emoji: "📦" },
+    { href: "/compras",    label: "Compras",           emoji: "🛒" },
+    { href: "/financas",   label: "Finanças",          emoji: "💸" },
+    { href: "/calendario", label: "Calendário",        emoji: "📅" },
+    ...(isAdmin ? [
+      { href: "/admin/config", label: "Central de Comando", emoji: "🛡️" },
+      { href: "/admin/memoria", label: "Memória da Inara", emoji: "🧠" }
+    ] : []),
+    { href: "/documentos", label: "Documentos",        emoji: "📄" },
+    { href: "/historico",  label: "Histórico",         emoji: "📜" },
+    { href: "/chat",       label: "Web Chat",          emoji: "💬" },
+  ];
+
   return (
     <>
       <RealtimeListener />
-      <div className="flex min-h-dvh">
+      <div className="fixed bottom-6 right-6 z-[100]">
+        <PushSubscriber />
+      </div>
+      <div className="flex flex-col md:flex-row h-dvh overflow-hidden">
         {/* Sidebar */}
         <aside className="hidden md:flex flex-col w-64 shrink-0 bg-warm-100/50 backdrop-blur-xl border-r border-warm-200 px-6 py-8 gap-8 dark:bg-stone-900/50 dark:border-stone-800">
           <div className="px-2 flex flex-col">
@@ -40,7 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <p className="text-sm font-medium text-sage-600 dark:text-sage-400 mt-1">lar organizado ✨</p>
           </div>
 
-          <nav className="flex-1 space-y-2">
+          <nav className="flex-1 space-y-2 overflow-y-auto pr-2">
             {NAV_ITEMS.map((item) => (
               <Link 
                 key={item.href} 
@@ -55,14 +64,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <div className="pt-4 mt-4 border-t border-warm-200 dark:border-stone-800 space-y-2">
               <Link href="/perfil" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-stone-600 dark:text-stone-400 hover:bg-warm-200/50 dark:hover:bg-stone-800 hover:text-stone-900 dark:hover:text-stone-100 font-bold transition-all">
                 <span className="text-xl">⚙️</span>
-                <span>Perfil & Config</span>
+                <span>Meu Perfil</span>
               </Link>
-              {isAdmin && (
-                <Link href="/admin/usuarios" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 font-bold transition-all">
-                  <span className="text-xl">🛡️</span>
-                  <span>Governança</span>
-                </Link>
-              )}
             </div>
           </nav>
 
@@ -92,9 +95,26 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </aside>
 
         {/* Main */}
-        <main className="flex-1 bg-white dark:bg-stone-950 md:rounded-l-[2.5rem] md:shadow-[-10px_0_30px_rgba(0,0,0,0.02)] overflow-hidden">
+        <main className="flex-1 bg-white dark:bg-stone-950 md:rounded-l-[2.5rem] md:shadow-[-10px_0_30px_rgba(0,0,0,0.02)] overflow-y-auto relative pb-24 md:pb-0">
+          <div className="absolute top-4 right-4 md:top-6 md:right-8 z-50">
+            <NotificationBell />
+          </div>
           {children}
         </main>
+        
+        {/* Mobile Navigation */}
+        <nav className="md:hidden fixed bottom-0 left-0 w-full z-50 bg-warm-50/90 dark:bg-stone-900/90 backdrop-blur-md border-t border-warm-200 dark:border-stone-800 px-2 py-2 pb-safe flex justify-around items-center">
+          {NAV_ITEMS.slice(0, 5).map((item) => (
+            <Link key={item.href} href={item.href} className="flex flex-col items-center gap-1 p-2 w-16">
+              <span className="text-xl">{item.emoji}</span>
+              <span className="text-[10px] font-bold text-stone-600 dark:text-stone-400 truncate w-full text-center">{item.label}</span>
+            </Link>
+          ))}
+          <Link href="/perfil" className="flex flex-col items-center gap-1 p-2 w-16">
+            <span className="text-xl">⚙️</span>
+            <span className="text-[10px] font-bold text-stone-600 dark:text-stone-400 truncate w-full text-center">Menu</span>
+          </Link>
+        </nav>
       </div>
     </>
   );
